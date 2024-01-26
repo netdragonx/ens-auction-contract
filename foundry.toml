@@ -5,3 +5,4 @@ libs = ["lib"]
 via_ir = true
 evm_version = 'paris'
 gas_reports = ["*"]
+solc = "0.8.20"

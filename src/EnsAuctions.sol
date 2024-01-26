@@ -1,50 +1,64 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "solady/src/auth/Ownable.sol";
 
 enum Status {
     Active,
     Claimed,
-    Refunded,
-    Abandoned,
-    Withdrawn
+    Abandoned
 }
 
 struct EnsAuction {
     uint64 endTime;
+    uint64 buyNowEndTime;
     uint8 tokenCount;
     Status status;
+    address seller;
     address highestBidder;
     uint256 highestBid;
+    uint256 startingPrice;
+    uint256 buyNowPrice;
     mapping(uint256 => uint256) tokenIds;
 }
 
 contract EnsAuctions is Ownable {
-    uint256 public constant ABANDONMENT_FEE_PERCENT = 20;
-    IERC721 public constant ENS_BASE_REGISTRAR = IERC721(0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85);
+    IERC721 public constant ENS = IERC721(0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85);
+    IERC20 public constant WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     uint256 public maxTokens = 10;
     uint256 public nextAuctionId = 1;
-    uint256 public minStartingBid = 0.05 ether;
+    uint256 public minStartingPrice = 0.01 ether;
+    uint256 public minBuyNowPrice = 0.01 ether;
     uint256 public minBidIncrement = 0.01 ether;
     uint256 public auctionDuration = 7 days;
+    uint256 public buyNowDuration = 4 hours;
     uint256 public settlementDuration = 7 days;
-    
+    uint256 public antiSnipeDuration = 15 minutes;
+    uint256 public baseFee = 0.05 ether;
+    uint256 public feeIncrement = 5;
+    uint256 public withdrawalAddress;
+
     mapping(uint256 => EnsAuction) public auctions;
     mapping(uint256 => bool) public auctionTokens;
+    mapping(address => uint256) public userFees;
 
     error AuctionAbandoned();
     error AuctionActive();
     error AuctionClaimed();
     error AuctionEnded();
     error AuctionIsApproved();
+    error AuctionNotActive();
+    error AuctionNotStarted();
     error AuctionNotClaimed();
     error AuctionNotEnded();
-    error AuctionRefunded();
     error AuctionWithdrawn();
     error BidTooLow();
+    error BuyNowUnavailable();
+    error InsufficientWethAllowance();
+    error InvalidFee();
     error InvalidLengthOfAmounts();
     error InvalidLengthOfTokenIds();
     error MaxTokensPerTxReached();
@@ -57,42 +71,44 @@ contract EnsAuctions is Ownable {
     error TokenNotOwned();
     error TransferFailed();
 
-    event Abandoned(uint256 indexed auctionId, address indexed bidder, uint256 indexed fee);
-    event AuctionStarted(address indexed bidder, uint256[] indexed tokenIds);
+    event Abandoned(uint256 indexed auctionId);
+    event AuctionStarted(address indexed bidder, uint256[] indexed tokenIds, uint256 indexed buyNowPrice);
+    event BuyNow(uint256 indexed auctionId, address indexed buyer, uint256 indexed value);
     event Claimed(uint256 indexed auctionId, address indexed winner);
     event NewBid(uint256 indexed auctionId, address indexed bidder, uint256 indexed value);
-    event Refunded(uint256 indexed auctionId, address indexed bidder, uint256 indexed value);
-    event Withdrawn(uint256 indexed auctionId, address indexed bidder, uint256 indexed value);
 
-    constructor() {
-        _initializeOwner(msg.sender);
+    constructor(address owner) {
+        _initializeOwner(owner);
     }
 
     /**
      *
-     * startAuction - Starts an auction for one or more ENS
+     * startAuction - Starts an auction for one or more ENS tokens
      *
      * @param tokenIds - The token ids to auction
      *
      */
-
-    function startAuction(uint256[] calldata tokenIds) external payable {
-        if (msg.value < minStartingBid) {
-            revert StartPriceTooLow();
-        }
-
+    function startAuction(uint256[] calldata tokenIds, uint256 startingPrice, uint256 buyNowPrice) external payable {
         _validateAuctionTokens(tokenIds);
+
+        uint256 auctionFee = calculateFee(msg.sender, tokenIds.length);
+
+        if (msg.value != auctionFee) {
+            revert InvalidFee();
+        }
 
         EnsAuction storage auction = auctions[nextAuctionId];
 
+        auction.seller = msg.sender;
+        auction.startingPrice = startingPrice;
+        auction.buyNowPrice = buyNowPrice;
         auction.endTime = uint64(block.timestamp + auctionDuration);
-        auction.highestBidder = msg.sender;
-        auction.highestBid = msg.value;
+        auction.buyNowEndTime = uint64(block.timestamp + buyNowDuration);
         auction.tokenCount = uint8(tokenIds.length);
 
         mapping(uint256 => uint256) storage tokenMap = auction.tokenIds;
 
-        for (uint256 i; i < tokenIds.length;) {
+        for (uint256 i; i < tokenIds.length; ) {
             tokenMap[i] = tokenIds[i];
 
             unchecked {
@@ -104,54 +120,93 @@ contract EnsAuctions is Ownable {
             ++nextAuctionId;
         }
 
-        emit AuctionStarted(msg.sender, tokenIds);
+        userFees[msg.sender] += auctionFee;
+
+        (bool success,) = owner().call{value: msg.value}("");
+        if (!success) revert TransferFailed();
+
+        emit AuctionStarted(msg.sender, tokenIds, buyNowPrice);
     }
 
     /**
+     *
      * bid - Places a bid on an auction
      *
      * @param auctionId - The id of the auction to bid on
      *
      */
-
-    function bid(uint256 auctionId) external payable {
+    function bid(uint256 auctionId, uint256 bidAmount) external {
         EnsAuction storage auction = auctions[auctionId];
+
+        if (block.timestamp < auction.buyNowEndTime && auction.buyNowPrice > 0) {
+            revert AuctionNotStarted();
+        }
 
         if (block.timestamp > auction.endTime) {
             revert AuctionEnded();
         }
 
-        if (block.timestamp >= auction.endTime - 1 hours) {
-            auction.endTime += 1 hours;
-        }
-
-        if (msg.value < auction.highestBid + minBidIncrement) {
+        if (bidAmount < auction.highestBid + minBidIncrement) {
             revert BidTooLow();
         }
 
-        address prevHighestBidder = auction.highestBidder;
-        uint256 prevHighestBid = auction.highestBid;
-
-        auction.highestBidder = msg.sender;
-        auction.highestBid = msg.value;
-
-        if (prevHighestBidder != address(0)) {
-            (bool success,) = payable(prevHighestBidder).call{value: prevHighestBid}("");
-            if (!success) revert TransferFailed();
+        if (block.timestamp >= auction.endTime - antiSnipeDuration) {
+            auction.endTime += uint64(antiSnipeDuration);
         }
 
-        emit NewBid(auctionId, msg.sender, msg.value);
+        auction.highestBidder = msg.sender;
+        auction.highestBid = bidAmount;
+
+        emit NewBid(auctionId, msg.sender, bidAmount);
     }
 
     /**
+     *
+     * buyNow - Buy an auction immediately *before* auction begins
+     *
+     * @param auctionId - The id of the auction to buy
+     *
+     */
+    function buyNow(uint256 auctionId) external {
+        EnsAuction storage auction = auctions[auctionId];
+
+        if (auction.status != Status.Active) {
+            revert AuctionNotActive();
+        }
+
+        if (auction.buyNowPrice == 0 || block.timestamp > auction.buyNowEndTime) {
+            revert BuyNowUnavailable();
+        }
+
+        if (WETH.allowance(msg.sender, address(this)) < auction.buyNowPrice) {
+            revert InsufficientWethAllowance();
+        }
+
+        auction.status = Status.Claimed;
+        auction.highestBidder = msg.sender;
+        auction.highestBid = auction.buyNowPrice;
+        auction.endTime = uint64(block.timestamp);
+        auction.buyNowEndTime = uint64(block.timestamp);
+
+        WETH.transferFrom(msg.sender, auction.seller, auction.buyNowPrice);
+        _transferTokens(auction);
+
+        emit BuyNow(auctionId, msg.sender, auction.buyNowPrice);
+    }
+
+    /**
+     *
      * claim - Claims the tokens from an auction
      *
      * @param auctionId - The id of the auction to claim
      *
      */
-
     function claim(uint256 auctionId) external {
         EnsAuction storage auction = auctions[auctionId];
+
+        if (WETH.allowance(msg.sender, address(this)) < auction.highestBid) {
+            revert InsufficientWethAllowance();
+        }
 
         if (block.timestamp < auction.endTime) {
             revert AuctionNotEnded();
@@ -162,9 +217,7 @@ contract EnsAuctions is Ownable {
         }
 
         if (auction.status != Status.Active) {
-            if (auction.status == Status.Refunded) {
-                revert AuctionRefunded();
-            } else if (auction.status == Status.Claimed) {
+            if (auction.status == Status.Claimed) {
                 revert AuctionClaimed();
             } else if (auction.status == Status.Abandoned) {
                 revert AuctionAbandoned();
@@ -173,52 +226,10 @@ contract EnsAuctions is Ownable {
 
         auction.status = Status.Claimed;
 
+        WETH.transferFrom(msg.sender, auction.seller, auction.highestBid);
         _transferTokens(auction);
-        
-        emit Claimed(auctionId, msg.sender);
-    }
 
-    /**
-     * refund - Refunds are available during the settlement period if the item is not approved for transfer
-     *
-     * @param auctionId - The id of the auction to refund
-     *
-     */
-    function refund(uint256 auctionId) external {
-        EnsAuction storage auction = auctions[auctionId];
-        uint256 highestBid = auction.highestBid;
-        uint256 endTime = auction.endTime;
-
-        if (block.timestamp < endTime) {
-            revert AuctionActive();
-        }
-
-        if (block.timestamp > endTime + settlementDuration) {
-            revert SettlementPeriodEnded();
-        }
-
-        if (msg.sender != auction.highestBidder) {
-            revert NotHighestBidder();
-        }
-
-        if (auction.status != Status.Active) {
-            if (auction.status == Status.Refunded) {
-                revert AuctionRefunded();
-            } else if (auction.status == Status.Claimed) {
-                revert AuctionClaimed();
-            } else if (auction.status == Status.Withdrawn) {
-                revert AuctionWithdrawn();
-            }
-        }
-
-        _checkAndResetTokens(auction);
-        
-        auction.status = Status.Refunded;
-
-        (bool success,) = payable(msg.sender).call{value: highestBid}("");
-        if (!success) revert TransferFailed();
-
-        emit Refunded(auctionId, msg.sender, highestBid);
+        emit Claimed(auctionId, auction.highestBidder);
     }
 
     /**
@@ -228,69 +239,55 @@ contract EnsAuctions is Ownable {
      * @param auctionId - The id of the auction to abandon
      *
      */
-    function abandon(uint256 auctionId) external onlyOwner {
+    function abandon(uint256 auctionId) external {
         EnsAuction storage auction = auctions[auctionId];
-        address highestBidder = auction.highestBidder;
-        uint256 highestBid = auction.highestBid;
-
-        if (block.timestamp < auction.endTime + settlementDuration) {
-            revert SettlementPeriodNotExpired();
-        }
-
-        if (auction.status != Status.Active) {
+        
+       if (auction.status != Status.Active) {
             if (auction.status == Status.Abandoned) {
                 revert AuctionAbandoned();
-            } else if (auction.status == Status.Refunded) {
-                revert AuctionRefunded();
             } else if (auction.status == Status.Claimed) {
                 revert AuctionClaimed();
             }
         }
 
+        if (block.timestamp < auction.endTime + settlementDuration) {
+            revert SettlementPeriodNotExpired();
+        }
+
         auction.status = Status.Abandoned;
-
-        _resetTokens(auction);
         
-        uint256 fee = highestBid * ABANDONMENT_FEE_PERCENT / 100;
+        _resetTokens(auction);
 
-        (bool success,) = payable(highestBidder).call{value: highestBid - fee}("");
-        if (!success) revert TransferFailed();
-
-        (success,) = payable(msg.sender).call{value: fee}("");
-        if (!success) revert TransferFailed();
-
-        emit Abandoned(auctionId, highestBidder, fee);
+        emit Abandoned(auctionId);
     }
 
     /**
-     * withdraw - Withdraws the highest bid from claimed auctions
      *
-     * @param auctionIds - The ids of the auctions to withdraw from
-     *
-     * @notice - Auctions can only be withdrawn after the settlement period has ended.
+     * withdraw - Withdraws the contract balance to the owner
      *
      */
+    function withdraw() external onlyOwner {
+        (bool success,) = payable(msg.sender).call{value: address(this).balance}("");
+        if (!success) revert TransferFailed();
+    }
+    
 
-    function withdraw(uint256[] calldata auctionIds) external onlyOwner {
-        uint256 totalAmount;
+    /**
+     *
+     * calculateFee - Calculates the auction fee based on previous unsold auctions.
+     *
+     * @param tokenCount - Number of ENS tokens in the auction
+     */
+     //TODO: convert this to a bonding curve based on number of active auctions?
+    function calculateFee(address user, uint256 tokenCount) public view returns (uint256) {
+        uint256 fee = baseFee * tokenCount;
+        uint256 userFee = userFees[user];
 
-        for (uint256 i; i < auctionIds.length;) {
-            EnsAuction storage auction = auctions[auctionIds[i]];
-
-            if (auction.status != Status.Claimed) {
-                revert AuctionNotClaimed();
-            }
-
-            totalAmount += auction.highestBid;
-            auction.status = Status.Withdrawn;
-
-            unchecked {
-                ++i;
-            }
+        if (userFee > 0) {
+            fee = fee + ((userFee * feeIncrement) / 100);
         }
 
-        (bool success,) = payable(msg.sender).call{value: totalAmount}("");
-        if (!success) revert TransferFailed();
+        return fee;
     }
 
     /**
@@ -303,12 +300,12 @@ contract EnsAuctions is Ownable {
         EnsAuction storage auction = auctions[auctionId];
 
         uint256[] memory tokenIds = new uint256[](auction.tokenCount);
-    
+
         uint256 tokenCount = auction.tokenCount;
 
-        for (uint256 i; i < tokenCount;) {
+        for (uint256 i; i < tokenCount; ) {
             tokenIds[i] = auction.tokenIds[i];
-            
+
             unchecked {
                 ++i;
             }
@@ -317,13 +314,12 @@ contract EnsAuctions is Ownable {
         return tokenIds;
     }
 
-
     function setMaxTokens(uint256 maxTokens_) external onlyOwner {
         maxTokens = maxTokens_;
     }
 
-    function setMinStartingBid(uint256 minStartingBid_) external onlyOwner {
-        minStartingBid = minStartingBid_;
+    function setMinStartingBid(uint256 minStartingPrice_) external onlyOwner {
+        minStartingPrice = minStartingPrice_;
     }
 
     function setMinBidIncrement(uint256 minBidIncrement_) external onlyOwner {
@@ -344,18 +340,22 @@ contract EnsAuctions is Ownable {
      *
      */
 
+    /**
+     * _validateAuctionTokens - Validates that the tokens are owned by the sender and not already in an auction
+     *
+     * @param tokenIds - The token ids to validate
+     *
+     */
     function _validateAuctionTokens(uint256[] calldata tokenIds) internal {
         if (tokenIds.length == 0) {
             revert InvalidLengthOfTokenIds();
         }
 
-        IERC721 erc721Contract = IERC721(ENS_BASE_REGISTRAR);
-
         if (tokenIds.length > maxTokens) {
             revert MaxTokensPerTxReached();
         }
 
-        for (uint256 i; i < tokenIds.length;) {
+        for (uint256 i; i < tokenIds.length; ) {
             uint256 tokenId = tokenIds[i];
 
             if (auctionTokens[tokenId]) {
@@ -364,7 +364,7 @@ contract EnsAuctions is Ownable {
 
             auctionTokens[tokenId] = true;
 
-            if (erc721Contract.ownerOf(tokenId) != msg.sender) {
+            if (ENS.ownerOf(tokenId) != msg.sender) {
                 revert TokenNotOwned();
             }
 
@@ -374,17 +374,22 @@ contract EnsAuctions is Ownable {
         }
     }
 
-
+    /**
+     * _transferTokens - Transfer auction tokens to the highest bidder
+     *
+     * @param auction - The auction to transfer tokens from
+     *
+     */
     function _transferTokens(EnsAuction storage auction) internal {
         uint256 tokenCount = auction.tokenCount;
         address highestBidder = auction.highestBidder;
 
         mapping(uint256 => uint256) storage tokenMap = auction.tokenIds;
 
-        for (uint256 i; i < tokenCount;) {
+        for (uint256 i; i < tokenCount; ) {
             uint256 tokenId = tokenMap[i];
             auctionTokens[tokenId] = false;
-            ENS_BASE_REGISTRAR.transferFrom(msg.sender, highestBidder, tokenId);
+            ENS.transferFrom(msg.sender, highestBidder, tokenId);
 
             unchecked {
                 ++i;
@@ -392,13 +397,18 @@ contract EnsAuctions is Ownable {
         }
     }
 
-
+    /**
+     * _resetTokens - Reset auction tokens so they can be auctioned again if needed
+     *
+     * @param auction - The auction to reset
+     *
+     */
     function _resetTokens(EnsAuction storage auction) internal {
         uint256 tokenCount = auction.tokenCount;
 
         mapping(uint256 => uint256) storage tokenMap = auction.tokenIds;
 
-        for (uint256 i; i < tokenCount;) {
+        for (uint256 i; i < tokenCount; ) {
             uint256 tokenId = tokenMap[i];
             auctionTokens[tokenId] = false;
 
@@ -408,26 +418,7 @@ contract EnsAuctions is Ownable {
         }
     }
 
-    function _checkAndResetTokens(EnsAuction storage auction) internal {
-        uint256 tokenCount = auction.tokenCount;
+    receive() external payable {}
 
-        mapping(uint256 => uint256) storage tokenMap = auction.tokenIds;
-
-        bool notRefundable = ENS_BASE_REGISTRAR.isApprovedForAll(msg.sender, address(this));
-
-        for (uint256 i; i < tokenCount;) {
-            uint256 tokenId = tokenMap[i];
-            auctionTokens[tokenId] = false;
-
-            notRefundable = notRefundable && (ENS_BASE_REGISTRAR.ownerOf(tokenId) == msg.sender);
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        if (notRefundable) {
-            revert AuctionIsApproved();
-        }
-    }
+    fallback() external payable {}
 }

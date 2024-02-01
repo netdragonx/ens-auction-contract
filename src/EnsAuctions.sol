@@ -8,7 +8,23 @@ import "solady/src/auth/Ownable.sol";
 enum Status {
     Active,
     Claimed,
+    Unclaimable,
     Abandoned
+}
+
+struct Bidder {
+    address bidder;
+    uint16 totalBids;
+    uint16 totalOutbids;
+    uint16 totalClaimed;
+    uint16 totalAbandoned;
+}
+
+struct Seller {
+    address seller;
+    uint16 totalAuctions;
+    uint16 totalClaimed;
+    uint16 totalUnclaimable;
 }
 
 struct EnsAuction {
@@ -25,8 +41,8 @@ struct EnsAuction {
 }
 
 contract EnsAuctions is Ownable {
-    IERC721 public constant ENS = IERC721(0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85);
-    IERC20 public constant WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    IERC721 public immutable ENS;
+    IERC20 public immutable WETH;
 
     uint256 public maxTokens = 10;
     uint256 public nextAuctionId = 1;
@@ -38,32 +54,35 @@ contract EnsAuctions is Ownable {
     uint256 public settlementDuration = 7 days;
     uint256 public antiSnipeDuration = 15 minutes;
     uint256 public baseFee = 0.05 ether;
-    uint256 public feeIncrement = 5;
-    uint256 public withdrawalAddress;
+    uint256 public linearFee = 0.01 ether;
+    uint256 public penaltyFee = 0.01 ether;
 
     mapping(uint256 => EnsAuction) public auctions;
     mapping(uint256 => bool) public auctionTokens;
-    mapping(address => uint256) public userFees;
-
+    mapping(address => Seller) public sellers;
+    mapping(address => Bidder) public bidders;
+    
     error AuctionAbandoned();
     error AuctionActive();
     error AuctionClaimed();
     error AuctionEnded();
-    error AuctionIsApproved();
     error AuctionNotActive();
     error AuctionNotStarted();
     error AuctionNotClaimed();
     error AuctionNotEnded();
     error AuctionWithdrawn();
     error BidTooLow();
+    error BuyNowTooLow();
     error BuyNowUnavailable();
     error InsufficientWethAllowance();
     error InvalidFee();
     error InvalidLengthOfAmounts();
     error InvalidLengthOfTokenIds();
     error MaxTokensPerTxReached();
+    error NotApproved();
     error NotEnoughTokensInSupply();
     error NotHighestBidder();
+    error SellerCannotBid();
     error SettlementPeriodNotExpired();
     error SettlementPeriodEnded();
     error StartPriceTooLow();
@@ -77,8 +96,10 @@ contract EnsAuctions is Ownable {
     event Claimed(uint256 indexed auctionId, address indexed winner);
     event NewBid(uint256 indexed auctionId, address indexed bidder, uint256 indexed value);
 
-    constructor(address owner) {
+    constructor(address owner, address ensAddress, address wethAddress) {
         _initializeOwner(owner);
+        ENS = IERC721(ensAddress);
+        WETH = IERC20(wethAddress);
     }
 
     /**
@@ -91,10 +112,22 @@ contract EnsAuctions is Ownable {
     function startAuction(uint256[] calldata tokenIds, uint256 startingPrice, uint256 buyNowPrice) external payable {
         _validateAuctionTokens(tokenIds);
 
-        uint256 auctionFee = calculateFee(msg.sender, tokenIds.length);
+        uint256 auctionFee = calculateFee(msg.sender);
 
         if (msg.value != auctionFee) {
             revert InvalidFee();
+        }
+
+        if (startingPrice < minStartingPrice) {
+            revert StartPriceTooLow();
+        }
+
+        if (buyNowPrice < minBuyNowPrice) {
+            revert BuyNowTooLow();
+        }
+
+        if (buyNowPrice > 0 && buyNowPrice <= startingPrice) {
+            revert BuyNowTooLow();
         }
 
         EnsAuction storage auction = auctions[nextAuctionId];
@@ -120,7 +153,7 @@ contract EnsAuctions is Ownable {
             ++nextAuctionId;
         }
 
-        userFees[msg.sender] += auctionFee;
+        ++sellers[msg.sender].totalAuctions;
 
         (bool success,) = owner().call{value: msg.value}("");
         if (!success) revert TransferFailed();
@@ -146,12 +179,26 @@ contract EnsAuctions is Ownable {
             revert AuctionEnded();
         }
 
-        if (bidAmount < auction.highestBid + minBidIncrement) {
+        if (auction.highestBid == 0) {
+            if (bidAmount < auction.startingPrice) {
+                revert BidTooLow();
+            }
+        } else if (bidAmount < auction.highestBid + minBidIncrement) {
             revert BidTooLow();
+        }
+
+        if (msg.sender == auction.seller) {
+            revert SellerCannotBid();
         }
 
         if (block.timestamp >= auction.endTime - antiSnipeDuration) {
             auction.endTime += uint64(antiSnipeDuration);
+        }
+
+        ++bidders[msg.sender].totalBids;
+
+        if (auction.highestBidder != address(0)) {
+            ++bidders[auction.highestBidder].totalOutbids;
         }
 
         auction.highestBidder = msg.sender;
@@ -187,6 +234,9 @@ contract EnsAuctions is Ownable {
         auction.highestBid = auction.buyNowPrice;
         auction.endTime = uint64(block.timestamp);
         auction.buyNowEndTime = uint64(block.timestamp);
+    
+        ++sellers[auction.seller].totalClaimed;
+        ++bidders[msg.sender].totalClaimed;
 
         WETH.transferFrom(msg.sender, auction.seller, auction.buyNowPrice);
         _transferTokens(auction);
@@ -204,18 +254,6 @@ contract EnsAuctions is Ownable {
     function claim(uint256 auctionId) external {
         EnsAuction storage auction = auctions[auctionId];
 
-        if (WETH.allowance(msg.sender, address(this)) < auction.highestBid) {
-            revert InsufficientWethAllowance();
-        }
-
-        if (block.timestamp < auction.endTime) {
-            revert AuctionNotEnded();
-        }
-
-        if (msg.sender != auction.highestBidder) {
-            revert NotHighestBidder();
-        }
-
         if (auction.status != Status.Active) {
             if (auction.status == Status.Claimed) {
                 revert AuctionClaimed();
@@ -224,7 +262,22 @@ contract EnsAuctions is Ownable {
             }
         }
 
+        if (msg.sender != auction.highestBidder) {
+            revert NotHighestBidder();
+        }
+
+        if (block.timestamp < auction.endTime) {
+            revert AuctionNotEnded();
+        }
+
+        if (WETH.allowance(msg.sender, address(this)) < auction.highestBid) {
+            revert InsufficientWethAllowance();
+        }
+
         auction.status = Status.Claimed;
+
+        ++sellers[auction.seller].totalClaimed;
+        ++bidders[msg.sender].totalClaimed;
 
         WETH.transferFrom(msg.sender, auction.seller, auction.highestBid);
         _transferTokens(auction);
@@ -234,12 +287,12 @@ contract EnsAuctions is Ownable {
 
     /**
      *
-     * abandon - Mark unclaimed auctions as abandoned after the settlement period
+     * abandon - Seller can mark unclaimed auctions as abandoned after the settlement period
      *
      * @param auctionId - The id of the auction to abandon
      *
      */
-    function abandon(uint256 auctionId) external {
+    function markAbandoned(uint256 auctionId) external {
         EnsAuction storage auction = auctions[auctionId];
         
        if (auction.status != Status.Active) {
@@ -255,10 +308,80 @@ contract EnsAuctions is Ownable {
         }
 
         auction.status = Status.Abandoned;
-        
+
+        ++bidders[auction.highestBidder].totalAbandoned;
+
         _resetTokens(auction);
 
         emit Abandoned(auctionId);
+    }
+
+    /**
+     *
+     * abandon - Buyer can mark auction unclaimable during the settlement period
+     *
+     * @param auctionId - The id of the auction to abandon
+     *
+     */
+    function markUnclaimable(uint256 auctionId) external {
+        EnsAuction storage auction = auctions[auctionId];
+        
+       if (auction.status != Status.Active) {
+            if (auction.status == Status.Abandoned) {
+                revert AuctionAbandoned();
+            } else if (auction.status == Status.Claimed) {
+                revert AuctionClaimed();
+            }
+        }
+
+        if (block.timestamp > auction.endTime + settlementDuration) {
+            revert SettlementPeriodEnded();
+        }
+
+        if (msg.sender != auction.highestBidder) {
+            revert NotHighestBidder();
+        }
+
+        for (uint256 i; i < auction.tokenCount; ) {
+            uint256 tokenId = auction.tokenIds[i];
+
+            if (ENS.ownerOf(tokenId) != auction.seller) {
+                revert TokenNotOwned();
+            }
+            
+            if (ENS.getApproved(tokenId) != address(this)) {
+                revert NotApproved();
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        auction.status = Status.Abandoned;
+
+        ++sellers[auction.seller].totalUnclaimable;
+
+        _resetTokens(auction);
+
+        emit Abandoned(auctionId);
+    }
+
+    /**
+     *
+     * calculateFee - Calculates the auction fee based on previous unsold auctions.
+     *
+     * @param sellerAddress - Address of seller
+     */
+     
+    function calculateFee(address sellerAddress) public view returns (uint256) {
+        Seller storage seller = sellers[sellerAddress];
+
+        return (
+            baseFee
+            + linearFee * (seller.totalAuctions - seller.totalClaimed)
+            + (seller.totalUnclaimable * penaltyFee)
+        );
     }
 
     /**
@@ -271,25 +394,6 @@ contract EnsAuctions is Ownable {
         if (!success) revert TransferFailed();
     }
     
-
-    /**
-     *
-     * calculateFee - Calculates the auction fee based on previous unsold auctions.
-     *
-     * @param tokenCount - Number of ENS tokens in the auction
-     */
-     //TODO: convert this to a bonding curve based on number of active auctions?
-    function calculateFee(address user, uint256 tokenCount) public view returns (uint256) {
-        uint256 fee = baseFee * tokenCount;
-        uint256 userFee = userFees[user];
-
-        if (userFee > 0) {
-            fee = fee + ((userFee * feeIncrement) / 100);
-        }
-
-        return fee;
-    }
-
     /**
      *
      * Getters & Setters
@@ -318,6 +422,10 @@ contract EnsAuctions is Ownable {
         maxTokens = maxTokens_;
     }
 
+    function setMinBuyNowPrice(uint256 minBuyNowPrice_) external onlyOwner {
+        minBuyNowPrice = minBuyNowPrice_;
+    }
+
     function setMinStartingBid(uint256 minStartingPrice_) external onlyOwner {
         minStartingPrice = minStartingPrice_;
     }
@@ -330,8 +438,28 @@ contract EnsAuctions is Ownable {
         auctionDuration = auctionDuration_;
     }
 
+    function setBuyNowDuration(uint256 buyNowDuration_) external onlyOwner {
+        buyNowDuration = buyNowDuration_;
+    }
+
     function setSettlementDuration(uint256 settlementDuration_) external onlyOwner {
         settlementDuration = settlementDuration_;
+    }
+
+    function setAntiSnipeDuration(uint256 antiSnipeDuration_) external onlyOwner {
+        antiSnipeDuration = antiSnipeDuration_;
+    }
+
+    function setBaseFee(uint256 baseFee_) external onlyOwner {
+        baseFee = baseFee_;
+    }
+
+    function setLinearFee(uint256 linearFee_) external onlyOwner {
+        linearFee = linearFee_;
+    }
+
+    function setPenaltyFee(uint256 penaltyFee_) external onlyOwner {
+        penaltyFee = penaltyFee_;
     }
 
     /**
@@ -381,15 +509,16 @@ contract EnsAuctions is Ownable {
      *
      */
     function _transferTokens(EnsAuction storage auction) internal {
-        uint256 tokenCount = auction.tokenCount;
+        address seller = auction.seller;
         address highestBidder = auction.highestBidder;
-
+        uint256 tokenCount = auction.tokenCount;
+        
         mapping(uint256 => uint256) storage tokenMap = auction.tokenIds;
 
         for (uint256 i; i < tokenCount; ) {
             uint256 tokenId = tokenMap[i];
             auctionTokens[tokenId] = false;
-            ENS.transferFrom(msg.sender, highestBidder, tokenId);
+            ENS.transferFrom(seller, highestBidder, tokenId);
 
             unchecked {
                 ++i;

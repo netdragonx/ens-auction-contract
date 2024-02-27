@@ -63,10 +63,31 @@ contract EnsAuctionsTest is Test {
         assertEq(user1.balance, startBalance - fee, "Balance should decrease by fee");
         assertEq(auctions.nextAuctionId(), 2, "nextAuctionId should be incremented");
 
-        (,,,,, address highestBidder, uint256 highestBid,,) = auctions.auctions(1);
+        (
+            uint64 _endTime, 
+            uint64 _buyNowEndTime, 
+            uint8 _tokenCount,
+            , 
+            address _seller, 
+            address _highestBidder, 
+            uint256 _highestBid, 
+            uint256 _startingPrice, 
+            uint256 _buyNowPrice
+        ) = auctions.auctions(1);
 
-        assertEq(highestBidder, address(0));
-        assertEq(highestBid, 0 ether);
+        assertEq(_endTime, block.timestamp + auctions.auctionDuration(), "Auction end time should be set correctly");
+        assertEq(_buyNowEndTime, block.timestamp + auctions.buyNowDuration(), "Buy now end time should be set correctly");
+        assertEq(_tokenCount, 3, "Token count should match the number of tokens auctioned");
+        assertEq(_seller, user1, "Seller should be user1");
+        assertEq(_highestBidder, address(0));
+        assertEq(_highestBid, 0 ether);
+        assertEq(_startingPrice, startingPrice);
+        assertEq(_buyNowPrice, buyNowPrice);
+
+        uint256[] memory auctionTokens = auctions.getAuctionTokens(auctions.nextAuctionId() - 1);
+        assertEq(auctionTokens[0], tokenIds[0]);
+        assertEq(auctionTokens[1], tokenIds[1]);
+        assertEq(auctionTokens[2], tokenIds[2]);
     }
 
     function testFuzz_startAuction_Success(uint256 _startingPrice) public {

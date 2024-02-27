@@ -27,7 +27,7 @@ struct Seller {
     uint16 totalUnclaimable;
 }
 
-struct EnsAuction {
+struct Auction {
     uint64 endTime;
     uint64 buyNowEndTime;
     uint8 tokenCount;
@@ -57,7 +57,7 @@ contract EnsAuctions is Ownable {
     uint256 public linearFee = 0.01 ether;
     uint256 public penaltyFee = 0.01 ether;
 
-    mapping(uint256 => EnsAuction) public auctions;
+    mapping(uint256 => Auction) public auctions;
     mapping(uint256 => bool) public auctionTokens;
     mapping(address => Seller) public sellers;
     mapping(address => Bidder) public bidders;
@@ -90,11 +90,12 @@ contract EnsAuctions is Ownable {
     error TokenNotOwned();
     error TransferFailed();
 
-    event Abandoned(uint256 indexed auctionId);
-    event AuctionStarted(address indexed bidder, uint256[] indexed tokenIds, uint256 indexed buyNowPrice);
+    event Started(uint256 indexed auctionId, address indexed seller, uint256 indexed startingPrice, 
+        uint256 buyNowPrice, uint256[] tokenIds);
     event BuyNow(uint256 indexed auctionId, address indexed buyer, uint256 indexed value);
+    event Bid(uint256 indexed auctionId, address indexed bidder, uint256 indexed value);
     event Claimed(uint256 indexed auctionId, address indexed winner);
-    event NewBid(uint256 indexed auctionId, address indexed bidder, uint256 indexed value);
+    event Abandoned(uint256 indexed auctionId);
 
     constructor(address owner, address ensAddress, address wethAddress) {
         _initializeOwner(owner);
@@ -130,7 +131,7 @@ contract EnsAuctions is Ownable {
             revert BuyNowTooLow();
         }
 
-        EnsAuction storage auction = auctions[nextAuctionId];
+        Auction storage auction = auctions[nextAuctionId];
 
         auction.seller = msg.sender;
         auction.startingPrice = startingPrice;
@@ -138,7 +139,7 @@ contract EnsAuctions is Ownable {
         auction.endTime = uint64(block.timestamp + auctionDuration);
         auction.buyNowEndTime = uint64(block.timestamp + buyNowDuration);
         auction.tokenCount = uint8(tokenIds.length);
-
+        
         mapping(uint256 => uint256) storage tokenMap = auction.tokenIds;
 
         for (uint256 i; i < tokenIds.length; ) {
@@ -158,7 +159,7 @@ contract EnsAuctions is Ownable {
         (bool success,) = owner().call{value: msg.value}("");
         if (!success) revert TransferFailed();
 
-        emit AuctionStarted(msg.sender, tokenIds, buyNowPrice);
+        emit Started(nextAuctionId - 1, msg.sender, startingPrice, buyNowPrice, tokenIds);
     }
 
     /**
@@ -169,7 +170,7 @@ contract EnsAuctions is Ownable {
      *
      */
     function bid(uint256 auctionId, uint256 bidAmount) external {
-        EnsAuction storage auction = auctions[auctionId];
+        Auction storage auction = auctions[auctionId];
 
         if (block.timestamp < auction.buyNowEndTime && auction.buyNowPrice > 0) {
             revert AuctionNotStarted();
@@ -204,7 +205,7 @@ contract EnsAuctions is Ownable {
         auction.highestBidder = msg.sender;
         auction.highestBid = bidAmount;
 
-        emit NewBid(auctionId, msg.sender, bidAmount);
+        emit Bid(auctionId, msg.sender, bidAmount);
     }
 
     /**
@@ -215,7 +216,7 @@ contract EnsAuctions is Ownable {
      *
      */
     function buyNow(uint256 auctionId) external {
-        EnsAuction storage auction = auctions[auctionId];
+        Auction storage auction = auctions[auctionId];
 
         if (auction.status != Status.Active) {
             revert AuctionNotActive();
@@ -252,7 +253,7 @@ contract EnsAuctions is Ownable {
      *
      */
     function claim(uint256 auctionId) external {
-        EnsAuction storage auction = auctions[auctionId];
+        Auction storage auction = auctions[auctionId];
 
         if (auction.status != Status.Active) {
             if (auction.status == Status.Claimed) {
@@ -293,7 +294,7 @@ contract EnsAuctions is Ownable {
      *
      */
     function markAbandoned(uint256 auctionId) external {
-        EnsAuction storage auction = auctions[auctionId];
+        Auction storage auction = auctions[auctionId];
         
        if (auction.status != Status.Active) {
             if (auction.status == Status.Abandoned) {
@@ -324,7 +325,7 @@ contract EnsAuctions is Ownable {
      *
      */
     function markUnclaimable(uint256 auctionId) external {
-        EnsAuction storage auction = auctions[auctionId];
+        Auction storage auction = auctions[auctionId];
         
        if (auction.status != Status.Active) {
             if (auction.status == Status.Abandoned) {
@@ -401,7 +402,7 @@ contract EnsAuctions is Ownable {
      */
 
     function getAuctionTokens(uint256 auctionId) external view returns (uint256[] memory) {
-        EnsAuction storage auction = auctions[auctionId];
+        Auction storage auction = auctions[auctionId];
 
         uint256[] memory tokenIds = new uint256[](auction.tokenCount);
 
@@ -508,7 +509,7 @@ contract EnsAuctions is Ownable {
      * @param auction - The auction to transfer tokens from
      *
      */
-    function _transferTokens(EnsAuction storage auction) internal {
+    function _transferTokens(Auction storage auction) internal {
         address seller = auction.seller;
         address highestBidder = auction.highestBidder;
         uint256 tokenCount = auction.tokenCount;
@@ -532,7 +533,7 @@ contract EnsAuctions is Ownable {
      * @param auction - The auction to reset
      *
      */
-    function _resetTokens(EnsAuction storage auction) internal {
+    function _resetTokens(Auction storage auction) internal {
         uint256 tokenCount = auction.tokenCount;
 
         mapping(uint256 => uint256) storage tokenMap = auction.tokenIds;

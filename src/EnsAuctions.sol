@@ -50,9 +50,9 @@ contract EnsAuctions is Ownable {
     uint256 public minBuyNowPrice = 0.01 ether;
     uint256 public minBidIncrement = 0.01 ether;
     uint256 public auctionDuration = 7 days;
-    uint256 public buyNowDuration = 4 hours;
+    uint256 public buyNowDuration = 24 hours;
     uint256 public settlementDuration = 7 days;
-    uint256 public antiSnipeDuration = 15 minutes;
+    uint256 public antiSnipeDuration = 10 minutes;
     uint256 public baseFee = 0.05 ether;
     uint256 public linearFee = 0.01 ether;
     uint256 public penaltyFee = 0.01 ether;

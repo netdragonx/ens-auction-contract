@@ -42,7 +42,6 @@ struct Auction {
 
 contract EnsAuctions is Ownable {
     IERC721 public immutable ENS;
-    IERC20 public immutable WETH;
 
     uint256 public maxTokens = 10;
     uint256 public nextAuctionId = 1;
@@ -74,7 +73,7 @@ contract EnsAuctions is Ownable {
     error BidTooLow();
     error BuyNowTooLow();
     error BuyNowUnavailable();
-    error InsufficientWethAllowance();
+    error InvalidValue();
     error InvalidFee();
     error InvalidLengthOfAmounts();
     error InvalidLengthOfTokenIds();
@@ -97,10 +96,9 @@ contract EnsAuctions is Ownable {
     event Claimed(uint256 indexed auctionId, address indexed winner);
     event Abandoned(uint256 indexed auctionId);
 
-    constructor(address owner, address ensAddress, address wethAddress) {
+    constructor(address owner, address ensAddress) {
         _initializeOwner(owner);
         ENS = IERC721(ensAddress);
-        WETH = IERC20(wethAddress);
     }
 
     /**
@@ -169,7 +167,7 @@ contract EnsAuctions is Ownable {
      * @param auctionId - The id of the auction to bid on
      *
      */
-    function bid(uint256 auctionId, uint256 bidAmount) external {
+    function bid(uint256 auctionId) external payable {
         Auction storage auction = auctions[auctionId];
 
         if (block.timestamp < auction.buyNowEndTime && auction.buyNowPrice > 0) {
@@ -181,10 +179,10 @@ contract EnsAuctions is Ownable {
         }
 
         if (auction.highestBid == 0) {
-            if (bidAmount < auction.startingPrice) {
+            if (msg.value < auction.startingPrice) {
                 revert BidTooLow();
             }
-        } else if (bidAmount < auction.highestBid + minBidIncrement) {
+        } else if (msg.value < auction.highestBid + minBidIncrement) {
             revert BidTooLow();
         }
 
@@ -202,10 +200,18 @@ contract EnsAuctions is Ownable {
             ++bidders[auction.highestBidder].totalOutbids;
         }
 
-        auction.highestBidder = msg.sender;
-        auction.highestBid = bidAmount;
+        address prevHighestBidder = auction.highestBidder;
+        uint256 prevHighestBid = auction.highestBid;
 
-        emit Bid(auctionId, msg.sender, bidAmount);
+        auction.highestBidder = msg.sender;
+        auction.highestBid = msg.value;
+
+        if (prevHighestBidder != address(0)) {
+            (bool success,) = payable(prevHighestBidder).call{value: prevHighestBid}("");
+            if (!success) revert TransferFailed();
+        }
+
+        emit Bid(auctionId, msg.sender, msg.value);
     }
 
     /**
@@ -215,7 +221,7 @@ contract EnsAuctions is Ownable {
      * @param auctionId - The id of the auction to buy
      *
      */
-    function buyNow(uint256 auctionId) external {
+    function buyNow(uint256 auctionId) external payable {
         Auction storage auction = auctions[auctionId];
 
         if (auction.status != Status.Active) {
@@ -226,20 +232,22 @@ contract EnsAuctions is Ownable {
             revert BuyNowUnavailable();
         }
 
-        if (WETH.allowance(msg.sender, address(this)) < auction.buyNowPrice) {
-            revert InsufficientWethAllowance();
+        if (msg.value != auction.buyNowPrice) {
+            revert InvalidValue();
         }
 
         auction.status = Status.Claimed;
         auction.highestBidder = msg.sender;
-        auction.highestBid = auction.buyNowPrice;
+        auction.highestBid = msg.value;
         auction.endTime = uint64(block.timestamp);
         auction.buyNowEndTime = uint64(block.timestamp);
     
         ++sellers[auction.seller].totalClaimed;
         ++bidders[msg.sender].totalClaimed;
 
-        WETH.transferFrom(msg.sender, auction.seller, auction.buyNowPrice);
+        (bool success,) = payable(auction.seller).call{value: msg.value}("");
+        if (!success) revert TransferFailed();
+
         _transferTokens(auction);
 
         emit BuyNow(auctionId, msg.sender, auction.buyNowPrice);
@@ -271,16 +279,11 @@ contract EnsAuctions is Ownable {
             revert AuctionNotEnded();
         }
 
-        if (WETH.allowance(msg.sender, address(this)) < auction.highestBid) {
-            revert InsufficientWethAllowance();
-        }
-
         auction.status = Status.Claimed;
 
         ++sellers[auction.seller].totalClaimed;
         ++bidders[msg.sender].totalClaimed;
 
-        WETH.transferFrom(msg.sender, auction.seller, auction.highestBid);
         _transferTokens(auction);
 
         emit Claimed(auctionId, auction.highestBidder);
@@ -381,7 +384,7 @@ contract EnsAuctions is Ownable {
         return (
             baseFee
             + linearFee * (seller.totalAuctions - seller.totalClaimed)
-            + (seller.totalUnclaimable * penaltyFee)
+            + (penaltyFee * seller.totalUnclaimable)
         );
     }
 

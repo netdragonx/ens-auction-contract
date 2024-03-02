@@ -13,9 +13,8 @@ contract EnsAuctionsScript is Script {
 
         address owner = vm.envAddress("ADDRESS_DEPLOYER");
         address ensAddress = 0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85;
-        address wethAddress = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
 
-        ensAuctions = new EnsAuctions(owner, ensAddress, wethAddress);
+        ensAuctions = new EnsAuctions(owner, ensAddress);
         
         vm.stopBroadcast();
     }

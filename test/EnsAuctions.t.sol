@@ -117,7 +117,7 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: startingPrice}(1);
+        auctions.bid{value: startingPrice}(1, startingPrice);
 
         skip(auctions.auctionDuration() + 1);
 
@@ -185,7 +185,7 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: startingPrice}(1);
+        auctions.bid{value: startingPrice}(1, startingPrice);
 
         (,,,,, address highestBidder, uint256 highestBid,,) = auctions.auctions(1);
 
@@ -199,8 +199,8 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: startingPrice}(1);
-        auctions.bid{value: startingPrice + auctions.minBidIncrement()}(1);
+        auctions.bid{value: startingPrice}(1, startingPrice);
+        auctions.bid{value: startingPrice + auctions.minBidIncrement()}(1, startingPrice + auctions.minBidIncrement());
 
         (,,,,, address highestBidder, uint256 highestBid,,) = auctions.auctions(1);
 
@@ -216,7 +216,7 @@ contract EnsAuctionsTest is Test {
         skip(60 * 60 * 24 * 7 - 59); // 1 second before auction ends
 
         vm.startPrank(user2);
-        auctions.bid{value: 0.06 ether}(1);
+        auctions.bid{value: 0.06 ether}(1, 0.06 ether);
 
         (uint256 endTimeB,,,,,,,,) = auctions.auctions(1);
 
@@ -231,12 +231,12 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
         
         vm.startPrank(user2);
-        auctions.bid{value: startingPrice}(1);
+        auctions.bid{value: startingPrice}(1, startingPrice);
         
         vm.startPrank(user3);
         uint256 minBidIncrement = auctions.minBidIncrement();
         vm.expectRevert(bytes4(keccak256("BidTooLow()")));
-        auctions.bid{value: startingPrice + minBidIncrement - 1}(1);
+        auctions.bid{value: startingPrice + minBidIncrement - 1}(1, startingPrice + minBidIncrement - 1);
     }
 
     function test_bid_RevertIf_BidEqualsHighestBid() public {
@@ -248,11 +248,11 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: startingPrice}(auctionId);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
 
         vm.startPrank(user3);
         vm.expectRevert(bytes4(keccak256("BidTooLow()")));
-        auctions.bid{value: startingPrice}(auctionId);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
     }
 
     function test_bid_RevertIf_AfterAuctionEnded() public {
@@ -263,7 +263,7 @@ contract EnsAuctionsTest is Test {
 
         vm.startPrank(user2);
         vm.expectRevert(bytes4(keccak256("AuctionEnded()")));
-        auctions.bid{value: startingPrice}(1);
+        auctions.bid{value: startingPrice}(1, startingPrice);
     }
 
     function testFuzz_bid_Success(uint256 bidA, uint256 bidB) public {
@@ -277,10 +277,10 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: _bidA}(1);
+        auctions.bid{value: _bidA}(1, _bidA);
 
         vm.startPrank(user3);
-        auctions.bid{value: _bidB}(1);
+        auctions.bid{value: _bidB}(1, _bidB);
 
         (,,,,, address highestBidder, uint256 highestBid,,) = auctions.auctions(1);
 
@@ -300,7 +300,7 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: startingPrice}(auctionId);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
 
         (,,,,, address highestBidder, uint256 highestBid,,) = auctions.auctions(auctionId);
 
@@ -323,7 +323,7 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: startingPrice}(1);
+        auctions.bid{value: startingPrice}(1, startingPrice);
 
         vm.expectRevert(bytes4(keccak256("AuctionNotEnded()")));
         auctions.claim(1);
@@ -338,7 +338,7 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: startingPrice}(auctionId);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
 
         skip(auctions.auctionDuration() + 1);
 
@@ -356,7 +356,7 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: startingPrice}(auctionId);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
 
         skip(auctions.auctionDuration() + auctions.settlementDuration() + 1);
 
@@ -377,7 +377,7 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: startingPrice}(auctionId);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
 
         skip(auctions.auctionDuration() + 1);
         
@@ -428,8 +428,8 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: 0.07 ether}(1);
-        auctions.bid{value: 0.09 ether}(1);
+        auctions.bid{value: 0.07 ether}(1, 0.07 ether);
+        auctions.bid{value: 0.09 ether}(1, 0.09 ether);
     }
 
     function test_setMinBidIncrement_RevertIf_BidTooLow() public {
@@ -441,9 +441,9 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
-        auctions.bid{value: 0.07 ether}(1);
+        auctions.bid{value: 0.07 ether}(1, 0.07 ether);
         vm.expectRevert(bytes4(keccak256("BidTooLow()")));
-        auctions.bid{value: 0.08 ether}(1);
+        auctions.bid{value: 0.08 ether}(1, 0.08 ether);
     }
 
     function test_setMaxTokens_Success() public {

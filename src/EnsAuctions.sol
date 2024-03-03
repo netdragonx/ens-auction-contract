@@ -18,6 +18,7 @@ struct Bidder {
     uint16 totalOutbids;
     uint16 totalClaimed;
     uint16 totalAbandoned;
+    uint256 balance;
 }
 
 struct Seller {
@@ -49,12 +50,13 @@ contract EnsAuctions is Ownable {
     uint256 public minBuyNowPrice = 0.01 ether;
     uint256 public minBidIncrement = 0.01 ether;
     uint256 public auctionDuration = 7 days;
-    uint256 public buyNowDuration = 24 hours;
+    uint256 public buyNowDuration = 4 hours;
     uint256 public settlementDuration = 7 days;
     uint256 public antiSnipeDuration = 10 minutes;
     uint256 public baseFee = 0.05 ether;
     uint256 public linearFee = 0.01 ether;
     uint256 public penaltyFee = 0.01 ether;
+    uint256 public totalFees;
 
     mapping(uint256 => Auction) public auctions;
     mapping(uint256 => bool) public auctionTokens;
@@ -63,10 +65,10 @@ contract EnsAuctions is Ownable {
     
     error AuctionAbandoned();
     error AuctionActive();
+    error AuctionBuyNowPeriod();
     error AuctionClaimed();
     error AuctionEnded();
     error AuctionNotActive();
-    error AuctionNotStarted();
     error AuctionNotClaimed();
     error AuctionNotEnded();
     error AuctionWithdrawn();
@@ -167,23 +169,16 @@ contract EnsAuctions is Ownable {
      * @param auctionId - The id of the auction to bid on
      *
      */
-    function bid(uint256 auctionId) external payable {
+    function bid(uint256 auctionId, uint256 bidAmount) external payable {
         Auction storage auction = auctions[auctionId];
+        Bidder storage bidder = bidders[msg.sender];
 
         if (block.timestamp < auction.buyNowEndTime && auction.buyNowPrice > 0) {
-            revert AuctionNotStarted();
+            revert AuctionBuyNowPeriod();
         }
 
         if (block.timestamp > auction.endTime) {
             revert AuctionEnded();
-        }
-
-        if (auction.highestBid == 0) {
-            if (msg.value < auction.startingPrice) {
-                revert BidTooLow();
-            }
-        } else if (msg.value < auction.highestBid + minBidIncrement) {
-            revert BidTooLow();
         }
 
         if (msg.sender == auction.seller) {
@@ -194,24 +189,52 @@ contract EnsAuctions is Ownable {
             auction.endTime += uint64(antiSnipeDuration);
         }
 
-        ++bidders[msg.sender].totalBids;
+        uint256 bidderBalance = bidder.balance;
+        uint256 minimumBid;
 
-        if (auction.highestBidder != address(0)) {
-            ++bidders[auction.highestBidder].totalOutbids;
+        if (auction.highestBid == 0) {
+            minimumBid = auction.startingPrice;
+        } else {
+            minimumBid = auction.highestBid + minBidIncrement;
         }
 
-        address prevHighestBidder = auction.highestBidder;
+        if (bidAmount < minimumBid) {
+            revert BidTooLow();
+        }
+
+        if (bidAmount > bidderBalance + msg.value) {
+            revert InvalidValue();
+        }
+
+        if (bidderBalance > bidAmount) {
+            if (msg.value > 0) {
+                revert InvalidValue();
+            }
+
+            bidder.balance -= bidAmount;
+        } else {
+            if (msg.value != bidAmount - bidderBalance) {
+                revert InvalidValue();
+            }
+            
+            bidder.balance = 0;
+        }
+
+        ++bidder.totalBids;
+
+        Bidder storage prevBidder = bidders[auction.highestBidder];
+
         uint256 prevHighestBid = auction.highestBid;
 
         auction.highestBidder = msg.sender;
-        auction.highestBid = msg.value;
+        auction.highestBid = bidAmount;
 
-        if (prevHighestBidder != address(0)) {
-            (bool success,) = payable(prevHighestBidder).call{value: prevHighestBid}("");
-            if (!success) revert TransferFailed();
+        if (prevBidder.bidder != address(0)) {
+            prevBidder.balance += prevHighestBid;
+            ++prevBidder.totalOutbids;
         }
 
-        emit Bid(auctionId, msg.sender, msg.value);
+        emit Bid(auctionId, msg.sender, bidAmount);
     }
 
     /**
@@ -317,6 +340,9 @@ contract EnsAuctions is Ownable {
 
         _resetTokens(auction);
 
+        (bool success,) = payable(auction.highestBidder).call{value: auction.highestBid}("");
+        if (!success) revert TransferFailed();
+
         emit Abandoned(auctionId);
     }
 
@@ -368,6 +394,9 @@ contract EnsAuctions is Ownable {
 
         _resetTokens(auction);
 
+        (bool success,) = payable(auction.highestBidder).call{value: auction.highestBid}("");
+        if (!success) revert TransferFailed();
+        
         emit Abandoned(auctionId);
     }
 
@@ -400,6 +429,20 @@ contract EnsAuctions is Ownable {
     
     /**
      *
+     * withdrawBalance - Withdraws bidders balance from the contract
+     *
+     */
+    function withdrawBalance() external {
+        uint256 balance = bidders[msg.sender].balance;
+
+        bidders[msg.sender].balance = 0;
+
+        (bool success,) = payable(msg.sender).call{value: balance}("");
+        if (!success) revert TransferFailed();
+    }
+
+    /**
+     * 
      * Getters & Setters
      *
      */

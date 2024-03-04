@@ -7,24 +7,24 @@ import "solady/src/auth/Ownable.sol";
 
 enum Status {
     Active,
+    BuyNow,
     Claimed,
     Unclaimable,
     Abandoned
 }
 
 struct Bidder {
-    address bidder;
     uint16 totalBids;
     uint16 totalOutbids;
     uint16 totalClaimed;
+    uint16 totalBuyNow;
     uint16 totalAbandoned;
     uint256 balance;
 }
 
 struct Seller {
-    address seller;
     uint16 totalAuctions;
-    uint16 totalClaimed;
+    uint16 totalSold;
     uint16 totalUnclaimable;
 }
 
@@ -171,8 +171,9 @@ contract EnsAuctions is Ownable {
      */
     function bid(uint256 auctionId, uint256 bidAmount) external payable {
         Auction storage auction = auctions[auctionId];
+        
         Bidder storage bidder = bidders[msg.sender];
-
+        
         if (block.timestamp < auction.buyNowEndTime && auction.buyNowPrice > 0) {
             revert AuctionBuyNowPeriod();
         }
@@ -222,14 +223,14 @@ contract EnsAuctions is Ownable {
 
         ++bidder.totalBids;
 
-        Bidder storage prevBidder = bidders[auction.highestBidder];
-
+        address prevHighestBidder = auction.highestBidder;
         uint256 prevHighestBid = auction.highestBid;
 
         auction.highestBidder = msg.sender;
         auction.highestBid = bidAmount;
 
-        if (prevBidder.bidder != address(0)) {
+        if (prevHighestBidder != address(0)) {
+            Bidder storage prevBidder = bidders[prevHighestBidder];
             prevBidder.balance += prevHighestBid;
             ++prevBidder.totalOutbids;
         }
@@ -239,13 +240,14 @@ contract EnsAuctions is Ownable {
 
     /**
      *
-     * buyNow - Buy an auction immediately *before* auction begins
+     * buyNow - Buy at buy now price *before* bidding begins
      *
      * @param auctionId - The id of the auction to buy
      *
      */
     function buyNow(uint256 auctionId) external payable {
         Auction storage auction = auctions[auctionId];
+        Bidder storage bidder = bidders[msg.sender];
 
         if (auction.status != Status.Active) {
             revert AuctionNotActive();
@@ -255,18 +257,28 @@ contract EnsAuctions is Ownable {
             revert BuyNowUnavailable();
         }
 
-        if (msg.value != auction.buyNowPrice) {
-            revert InvalidValue();
+        uint256 bidderBalance = bidder.balance;
+
+        if (bidderBalance > auction.buyNowPrice) {
+            if (msg.value > 0) {
+                revert InvalidValue();
+            }
+
+            bidder.balance -= auction.buyNowPrice;
+        } else {
+            if (msg.value != auction.buyNowPrice - bidderBalance) {
+                revert InvalidValue();
+            }
+            
+            bidder.balance = 0;
         }
 
-        auction.status = Status.Claimed;
+        auction.status = Status.BuyNow;
         auction.highestBidder = msg.sender;
-        auction.highestBid = msg.value;
-        auction.endTime = uint64(block.timestamp);
-        auction.buyNowEndTime = uint64(block.timestamp);
+        auction.highestBid = auction.buyNowPrice;
     
-        ++sellers[auction.seller].totalClaimed;
-        ++bidders[msg.sender].totalClaimed;
+        ++sellers[auction.seller].totalSold;
+        ++bidder.totalBuyNow;
 
         (bool success,) = payable(auction.seller).call{value: msg.value}("");
         if (!success) revert TransferFailed();
@@ -287,7 +299,7 @@ contract EnsAuctions is Ownable {
         Auction storage auction = auctions[auctionId];
 
         if (auction.status != Status.Active) {
-            if (auction.status == Status.Claimed) {
+            if (auction.status == Status.Claimed || auction.status == Status.BuyNow) {
                 revert AuctionClaimed();
             } else if (auction.status == Status.Abandoned) {
                 revert AuctionAbandoned();
@@ -304,7 +316,7 @@ contract EnsAuctions is Ownable {
 
         auction.status = Status.Claimed;
 
-        ++sellers[auction.seller].totalClaimed;
+        ++sellers[auction.seller].totalSold;
         ++bidders[msg.sender].totalClaimed;
 
         _transferTokens(auction);
@@ -325,7 +337,7 @@ contract EnsAuctions is Ownable {
        if (auction.status != Status.Active) {
             if (auction.status == Status.Abandoned) {
                 revert AuctionAbandoned();
-            } else if (auction.status == Status.Claimed) {
+            } else if (auction.status == Status.Claimed || auction.status == Status.BuyNow) {
                 revert AuctionClaimed();
             }
         }
@@ -359,7 +371,7 @@ contract EnsAuctions is Ownable {
        if (auction.status != Status.Active) {
             if (auction.status == Status.Abandoned) {
                 revert AuctionAbandoned();
-            } else if (auction.status == Status.Claimed) {
+            } else if (auction.status == Status.Claimed || auction.status == Status.BuyNow) {
                 revert AuctionClaimed();
             }
         }
@@ -412,7 +424,7 @@ contract EnsAuctions is Ownable {
 
         return (
             baseFee
-            + linearFee * (seller.totalAuctions - seller.totalClaimed)
+            + linearFee * (seller.totalAuctions - seller.totalSold)
             + (penaltyFee * seller.totalUnclaimable)
         );
     }

@@ -223,6 +223,51 @@ contract EnsAuctionsTest is Test {
         assertLt(endTimeA, endTimeB, "New endtime should be greater than old endtime");
     }
 
+    function test_bid_Success_UsingAvailableBalance() public {
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, 0.01 ether, buyNowPrice);
+        
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: 0.01 ether}(1, 0.01 ether);
+        
+        (,,,,, address highestBidder1, uint256 highestBid1,,) = auctions.auctions(1);
+        assertEq(highestBid1, 0.01 ether);
+        assertEq(highestBidder1, user2);
+
+        vm.startPrank(user3);
+        auctions.bid{value: 0.02 ether}(1, 0.02 ether);
+        
+        (,,,,, address highestBidder2, uint256 highestBid2,,) = auctions.auctions(1);
+        assertEq(highestBid2, 0.02 ether);
+        assertEq(highestBidder2, user3);
+
+        (uint16 totalBids,,,,, uint256 balance) = auctions.bidders(user2);
+        assertEq(totalBids, 1, "should have 1 total bids");
+        assertEq(balance, 0.01 ether, "balance should be 0.01 ether");
+
+        vm.startPrank(user2);
+        auctions.bid{value: 0.02 ether}(1, 0.03 ether);
+        
+        (,,,,, address highestBidder3, uint256 highestBid3,,) = auctions.auctions(1);
+        assertEq(highestBid3, 0.03 ether);
+        assertEq(highestBidder3, user2);
+        
+        assertEq(user2.balance, 1 ether - 0.03 ether);
+        assertEq(user3.balance, 1 ether - 0.02 ether);
+
+        (uint16 totalBids2, uint16 totalOutbids2,,,, uint256 balance2) = auctions.bidders(user2);
+        assertEq(totalBids2, 2, "should have 2 total bids");
+        assertEq(totalOutbids2, 1, "should have 1 total outbids");
+        assertEq(balance2, 0, "balance should be 0 ether");
+
+        (uint16 totalBids3, uint16 totalOutbids3,,,, uint256 balance3) = auctions.bidders(user3);
+        assertEq(totalBids3, 1, "should have 1 total bids");
+        assertEq(totalOutbids3, 1, "should have 1 total outbids");
+        assertEq(balance3, 0.02 ether, "balance should be 0.02 ether");
+    }
+
     function test_bid_RevertIf_BelowMinimumIncrement() public {
         vm.startPrank(user1);
         uint256 fee = auctions.calculateFee(user1);

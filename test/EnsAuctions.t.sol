@@ -132,6 +132,13 @@ contract EnsAuctionsTest is Test {
         assertEq(auctions.nextAuctionId(), nextAuctionId + 2, "nextAuctionId should be incremented");
     }
 
+    function test_startAuction_RevertIf_InvalidFee() public {
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1);
+        vm.expectRevert(bytes4(keccak256("InvalidFee()")));
+        auctions.startAuction{value: fee - 0.01 ether}(tokenIds, startingPrice, buyNowPrice);
+    }
+
     function test_startAuction_RevertIf_MaxTokensPerTxReached() public {
         auctions.setMaxTokens(10);
         vm.startPrank(user1);
@@ -146,6 +153,13 @@ contract EnsAuctionsTest is Test {
         uint256 fee = auctions.calculateFee(user1);
         vm.expectRevert(bytes4(keccak256("StartPriceTooLow()")));
         auctions.startAuction{value: fee}(tokenIds, startingPrice - 0.001 ether, buyNowPrice);
+    }
+
+    function test_startAuction_RevertIf_BuyNowTooLow() public {
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1);
+        vm.expectRevert(bytes4(keccak256("BuyNowTooLow()")));
+        auctions.startAuction{value: fee}(tokenIds, startingPrice, buyNowPrice - 0.001 ether);
     }
 
     function test_startAuction_RevertIf_TokenAlreadyInAuction() public {
@@ -268,6 +282,36 @@ contract EnsAuctionsTest is Test {
         assertEq(balance3, 0.02 ether, "balance should be 0.02 ether");
     }
 
+    function test_bid_RevertIf_AuctionBuyNowPeriod() public {
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+
+        vm.startPrank(user2);
+        vm.expectRevert(bytes4(keccak256("AuctionBuyNowPeriod()")));
+        auctions.bid{value: startingPrice}(1, startingPrice);
+    }
+
+    function test_bid_RevertIf_AuctionEnded() public {
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+
+        skip(auctions.auctionDuration() + 1);
+
+        vm.startPrank(user2);
+        vm.expectRevert(bytes4(keccak256("AuctionEnded()")));
+        auctions.bid{value: startingPrice}(1, startingPrice);
+    }
+
+    function test_bid_RevertIf_SellerCannotBid() public {
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.expectRevert(bytes4(keccak256("SellerCannotBid()")));
+        auctions.bid{value: startingPrice}(1, startingPrice);
+    }
+
     function test_bid_RevertIf_BelowMinimumIncrement() public {
         vm.startPrank(user1);
         uint256 fee = auctions.calculateFee(user1);
@@ -300,17 +344,6 @@ contract EnsAuctionsTest is Test {
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
     }
 
-    function test_bid_RevertIf_AfterAuctionEnded() public {
-        vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
-
-        skip(auctions.auctionDuration() + 1);
-
-        vm.startPrank(user2);
-        vm.expectRevert(bytes4(keccak256("AuctionEnded()")));
-        auctions.bid{value: startingPrice}(1, startingPrice);
-    }
-
     function testFuzz_bid_Success(uint256 bidA, uint256 bidB) public {
         uint256 _bidA = bound(bidA, 0.05 ether, 1000 ether);
         uint256 _bidB = bound(bidB, _bidA + auctions.minBidIncrement(), type(uint256).max);
@@ -331,6 +364,38 @@ contract EnsAuctionsTest is Test {
 
         assertEq(highestBidder, user3, "Highest bidder should be this contract");
         assertEq(highestBid, _bidB, "Highest bid should be 0.06 ether");
+    }
+
+    //
+    // buyNow()
+    //
+    function test_buyNow_Success() public {
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+
+        vm.startPrank(user2);
+        auctions.buyNow{value: buyNowPrice}(1);
+
+        (,,,,, address highestBidder, uint256 highestBid,,) = auctions.auctions(1);
+
+        assertEq(highestBidder, user2, "Highest bidder incorrect");
+        assertEq(highestBid, buyNowPrice, "Highest bid incorrect");
+
+        (
+            uint16 totalBids, 
+            uint16 totalOutbids, 
+            uint16 totalClaimed, 
+            uint16 totalBuyNow, 
+            uint16 totalAbandoned, 
+            uint256 balance
+        ) = auctions.bidders(user2);
+
+        assertEq(totalBids, 0, "should have 0 total bids");
+        assertEq(totalOutbids, 0, "should have 0 total outbids");
+        assertEq(totalClaimed, 0, "should have 0 total claimed");
+        assertEq(totalBuyNow, 1, "should have 1 total buy now");
+        assertEq(totalAbandoned, 0, "should have 0 total abandoned");
+        assertEq(balance, 0, "balance should be 0 ether");
     }
 
     //
@@ -438,6 +503,30 @@ contract EnsAuctionsTest is Test {
         vm.deal(address(this), 1 ether);
         vm.startPrank(address(this));
         auctions.withdraw();
+    }
+
+    //
+    // withdrawBalance
+    //
+    function test_withdrawBalance_Success() public {
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, 0.01 ether, buyNowPrice);
+        
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: 0.01 ether}(1, 0.01 ether);
+        
+        (,,,,, address highestBidder1, uint256 highestBid1,,) = auctions.auctions(1);
+        assertEq(highestBid1, 0.01 ether);
+        assertEq(highestBidder1, user2);
+
+        vm.startPrank(user3);
+        auctions.bid{value: 0.02 ether}(1, 0.02 ether);
+
+        vm.startPrank(user2);
+        auctions.withdrawBalance();
+        assertEq(user2.balance, 1 ether);
     }
 
     //

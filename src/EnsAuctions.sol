@@ -47,7 +47,7 @@ contract EnsAuctions is Ownable {
     uint256 public maxTokens = 10;
     uint256 public nextAuctionId = 1;
     uint256 public minStartingPrice = 0.01 ether;
-    uint256 public minBuyNowPrice = 0.01 ether;
+    uint256 public minBuyNowPrice = 0.05 ether;
     uint256 public minBidIncrement = 0.01 ether;
     uint256 public auctionDuration = 7 days;
     uint256 public buyNowDuration = 4 hours;
@@ -81,6 +81,7 @@ contract EnsAuctions is Ownable {
     error InvalidLengthOfTokenIds();
     error MaxTokensPerTxReached();
     error NotApproved();
+    error NotAuthorized();
     error NotEnoughTokensInSupply();
     error NotHighestBidder();
     error SellerCannotBid();
@@ -340,6 +341,10 @@ contract EnsAuctions is Ownable {
             } else if (auction.status == Status.Claimed || auction.status == Status.BuyNow) {
                 revert AuctionClaimed();
             }
+        }
+
+        if (msg.sender != auction.seller) {
+            revert NotAuthorized();
         }
 
         if (block.timestamp < auction.endTime + settlementDuration) {

@@ -2,17 +2,12 @@
 
 
 
-if [ -z "$ADDRESS_DEPLOYER" ]; then
-    echo "Missing ADDRESS_DEPLOYER"
-    exit 1
-fi
-
-if [ -z "$ALCHEMY_API_KEY" ]; then
-    echo "Missing ALCHEMY_API_KEY"
-    exit 1
-fi
-
 anvil() {
+    if [ -z "$ADDRESS_DEPLOYER" ]; then
+        echo "Missing ADDRESS_DEPLOYER"
+        exit 1
+    fi
+
     forge script script/DeployAnvil.s.sol:DeployAnvilScript \
         -vvvv \
         --fork-url http://localhost:8545 \
@@ -37,13 +32,17 @@ testnet() {
         exit 1
     fi
 
+    if [ -z "$ALCHEMY_API_KEY" ]; then
+        echo "Missing ALCHEMY_API_KEY"
+        exit 1
+    fi
+
     forge script script/Deploy.s.sol:DeployScript \
         -vvvv \
         --rpc-url "$rpcUrl" \
         --optimize \
         --optimizer-runs 1000 \
         --gas-estimate-multiplier 150 \
-        --verify \
         --sender "$ADDRESS_DEPLOYER" \
         --interactives 1 \
         --broadcast
@@ -59,6 +58,11 @@ mainnet() {
 
     if [ -z "$ADDRESS_DEPLOYER" ]; then
         echo "Missing ADDRESS_DEPLOYER"
+        exit 1
+    fi
+
+    if [ -z "$ALCHEMY_API_KEY" ]; then
+        echo "Missing ALCHEMY_API_KEY"
         exit 1
     fi
 

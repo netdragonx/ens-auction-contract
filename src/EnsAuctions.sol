@@ -43,6 +43,7 @@ struct Auction {
 
 contract EnsAuctions is Ownable {
     IERC721 public immutable ENS;
+    IERC20  public immutable APE;
 
     uint256 public maxTokens = 10;
     uint256 public nextAuctionId = 1;
@@ -53,6 +54,7 @@ contract EnsAuctions is Ownable {
     uint256 public buyNowDuration = 4 hours;
     uint256 public settlementDuration = 7 days;
     uint256 public antiSnipeDuration = 10 minutes;
+    uint256 public baseFeeApecoin = 0.025 ether;
     uint256 public baseFee = 0.05 ether;
     uint256 public linearFee = 0.01 ether;
     uint256 public penaltyFee = 0.01 ether;
@@ -80,6 +82,7 @@ contract EnsAuctions is Ownable {
     error InvalidLengthOfAmounts();
     error InvalidLengthOfTokenIds();
     error MaxTokensPerTxReached();
+    error MustHoldApecoin();
     error NotApproved();
     error NotAuthorized();
     error NotEnoughTokensInSupply();
@@ -99,9 +102,10 @@ contract EnsAuctions is Ownable {
     event Claimed(uint256 indexed auctionId, address indexed winner);
     event Abandoned(uint256 indexed auctionId);
 
-    constructor(address owner, address ensAddress) {
+    constructor(address owner, address ensAddress, address apeCoinAddress) {
         _initializeOwner(owner);
         ENS = IERC721(ensAddress);
+        APE = IERC20(apeCoinAddress);
     }
 
     /**
@@ -112,9 +116,21 @@ contract EnsAuctions is Ownable {
      *
      */
     function startAuction(uint256[] calldata tokenIds, uint256 startingPrice, uint256 buyNowPrice) external payable {
-        _validateAuctionTokens(tokenIds);
-
         uint256 auctionFee = calculateFee(msg.sender);
+        _startAuction(tokenIds, startingPrice, buyNowPrice, auctionFee);
+    }
+
+    function startAuctionWithApecoin(uint256[] calldata tokenIds, uint256 startingPrice, uint256 buyNowPrice) external payable {
+        if (APE.balanceOf(msg.sender) < 1) {
+            revert MustHoldApecoin();
+        }
+
+        uint256 auctionFee = calculateDiscountedFee(msg.sender);
+        _startAuction(tokenIds, startingPrice, buyNowPrice, auctionFee);
+    }
+
+    function _startAuction(uint256[] calldata tokenIds, uint256 startingPrice, uint256 buyNowPrice, uint256 auctionFee) internal {
+        _validateAuctionTokens(tokenIds);
 
         if (msg.value != auctionFee) {
             revert InvalidFee();
@@ -429,6 +445,23 @@ contract EnsAuctions is Ownable {
 
         return (
             baseFee
+            + linearFee * (seller.totalAuctions - seller.totalSold)
+            + (penaltyFee * seller.totalUnclaimable)
+        );
+    }
+
+    /**
+     *
+     * calculateDiscountedFee - Calculates the discounted auction fee for $APE holders
+     *
+     * @param sellerAddress - Address of seller
+     */
+     
+    function calculateDiscountedFee(address sellerAddress) public view returns (uint256) {
+        Seller storage seller = sellers[sellerAddress];
+
+        return (
+            baseFeeApecoin
             + linearFee * (seller.totalAuctions - seller.totalSold)
             + (penaltyFee * seller.totalUnclaimable)
         );

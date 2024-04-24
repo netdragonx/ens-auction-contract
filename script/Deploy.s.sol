@@ -16,6 +16,8 @@ contract DeployScript is Script {
 
         ensAuctions = new EnsAuctions(owner, ensAddress);
         
+        console2.log("EnsAuctions contract: ", address(ensAuctions));
+
         vm.stopBroadcast();
     }
 }

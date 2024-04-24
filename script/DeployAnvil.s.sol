@@ -24,6 +24,9 @@ contract DeployAnvilScript is Script {
         // tokenIds[0] = 0;
         // ensAuctions.startAuction(tokenIds, 100, 500);
 
+        console2.log("MockENS contract: ", address(mockENS));
+        console2.log("EnsAuctions contract: ", address(ensAuctions));
+
         vm.stopBroadcast();
     }
 }

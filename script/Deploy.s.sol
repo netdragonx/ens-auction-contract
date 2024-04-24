@@ -13,9 +13,8 @@ contract DeployScript is Script {
 
         address owner = vm.envAddress("ADDRESS_DEPLOYER");
         address ensAddress = 0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85;
-        address apeAddress = 0x4d224452801ACEd8B2F0aebE155379bb5D594381;
 
-        ensAuctions = new EnsAuctions(owner, ensAddress, apeAddress);
+        ensAuctions = new EnsAuctions(owner, ensAddress);
         
         vm.stopBroadcast();
     }

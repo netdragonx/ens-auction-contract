@@ -4,12 +4,10 @@ pragma solidity ^0.8.25;
 import "forge-std/Test.sol";
 import "../src/EnsAuctions.sol";
 import "./lib/Mock721.sol";
-import "./lib/Mock20.sol";
 
 contract EnsAuctionsTest is Test {
     EnsAuctions public auctions;
     Mock721 public mockEns;
-    Mock20 public mockApe;
 
     address public user1;
     address public user2;
@@ -26,8 +24,7 @@ contract EnsAuctionsTest is Test {
 
     function setUp() public {
         mockEns = new Mock721();
-        mockApe = new Mock20();
-        auctions = new EnsAuctions(address(this), address(mockEns), address(mockApe));
+        auctions = new EnsAuctions(address(this), address(mockEns));
 
         user1 = vm.addr(1);
         user2 = vm.addr(2);
@@ -189,82 +186,6 @@ contract EnsAuctionsTest is Test {
         uint256 fee = auctions.calculateFee(user1);
         vm.expectRevert(bytes4(keccak256("TokenNotOwned()")));
         auctions.startAuction{value: fee}(notOwnedTokenIds, startingPrice, buyNowPrice);
-    }
-
-    //
-    // startAuctionWithApecoin()
-    //
-    function test_startAuctionWithApecoin_Success() public {
-        mockApe.mint(user1, 100);
-        vm.startPrank(user1);
-        
-        uint256 startBalance = user1.balance;
-        uint256 fee = auctions.calculateDiscountedFee(user1);
-
-        auctions.startAuctionWithApecoin{value: fee}(tokenIds, startingPrice, buyNowPrice);
-        assertEq(user1.balance, startBalance - fee, "Balance should decrease by fee");
-        assertEq(auctions.nextAuctionId(), 2, "nextAuctionId should be incremented");
-
-        (
-            uint64 _endTime, 
-            uint64 _buyNowEndTime, 
-            uint8 _tokenCount,
-            , 
-            address _seller, 
-            address _highestBidder, 
-            uint256 _highestBid, 
-            uint256 _startingPrice, 
-            uint256 _buyNowPrice
-        ) = auctions.auctions(1);
-
-        assertEq(_endTime, block.timestamp + auctions.auctionDuration(), "Auction end time should be set correctly");
-        assertEq(_buyNowEndTime, block.timestamp + auctions.buyNowDuration(), "Buy now end time should be set correctly");
-        assertEq(_tokenCount, 3, "Token count should match the number of tokens auctioned");
-        assertEq(_seller, user1, "Seller should be user1");
-        assertEq(_highestBidder, address(0));
-        assertEq(_highestBid, 0 ether);
-        assertEq(_startingPrice, startingPrice);
-        assertEq(_buyNowPrice, buyNowPrice);
-
-        uint256[] memory auctionTokens = auctions.getAuctionTokens(auctions.nextAuctionId() - 1);
-        assertEq(auctionTokens[0], tokenIds[0]);
-        assertEq(auctionTokens[1], tokenIds[1]);
-        assertEq(auctionTokens[2], tokenIds[2]);
-    }
-
-    function testFuzz_startAuctionWithApecoin_Success(uint256 _startingPrice) public {
-        vm.assume(_startingPrice >= auctions.minStartingPrice());
-        vm.assume(user1.balance >= _startingPrice);
-
-        mockApe.mint(user1, 100);
-        vm.startPrank(user1);
-        auctions.startAuctionWithApecoin{value: auctions.calculateDiscountedFee(user1)}(tokenIds, startingPrice, buyNowPrice);
-        assertEq(auctions.nextAuctionId(), 2, "nextAuctionId should be incremented");
-
-        (
-            uint64 _endTime,
-            uint64 _buyNowEndTime,
-            uint8 _tokenCount,
-            ,
-            address _seller,
-            address _highestBidder,
-            uint256 _highestBid,
-            ,
-        ) = auctions.auctions(1);
-
-        assertEq(_highestBidder, address(0));
-        assertEq(_highestBid, 0);
-        assertEq(_seller, user1);
-        assertEq(_tokenCount, 3);
-        assertEq(_endTime, block.timestamp + auctions.auctionDuration());
-        assertEq(_buyNowEndTime, block.timestamp + auctions.buyNowDuration());
-    }
-
-    function test_startAuctionWithApecoin_RevertIf_NoApecoin() public {
-        vm.startPrank(user1);
-        uint256 fee = auctions.calculateDiscountedFee(user1);
-        vm.expectRevert(bytes4(keccak256("MustHoldApecoin()")));
-        auctions.startAuctionWithApecoin{value: fee - 0.01 ether}(tokenIds, startingPrice, buyNowPrice);
     }
 
     //

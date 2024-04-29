@@ -125,7 +125,7 @@ contract EnsAuctions is Ownable {
         uint256 buyNowPrice
     ) external payable {
         uint256 auctionFee = calculateFee(msg.sender);
-     
+
         _validateAuctionTokens(tokenIds);
 
         if (msg.value != auctionFee) {
@@ -155,12 +155,8 @@ contract EnsAuctions is Ownable {
 
         mapping(uint256 => uint256) storage tokenMap = auction.tokenIds;
 
-        for (uint256 i; i < tokenIds.length; ) {
+        for (uint256 i; i < tokenIds.length; ++i) {
             tokenMap[i] = tokenIds[i];
-
-            unchecked {
-                ++i;
-            }
         }
 
         unchecked {
@@ -425,7 +421,7 @@ contract EnsAuctions is Ownable {
             revert NotHighestBidder();
         }
 
-        for (uint256 i; i < auction.tokenCount; ) {
+        for (uint256 i; i < auction.tokenCount; ++i) {
             uint256 tokenId = auction.tokenIds[i];
 
             if (ENS.ownerOf(tokenId) != auction.seller) {
@@ -434,10 +430,6 @@ contract EnsAuctions is Ownable {
 
             if (ENS.getApproved(tokenId) != address(this)) {
                 revert NotApproved();
-            }
-
-            unchecked {
-                ++i;
             }
         }
 
@@ -512,12 +504,8 @@ contract EnsAuctions is Ownable {
 
         uint256 tokenCount = auction.tokenCount;
 
-        for (uint256 i; i < tokenCount; ) {
+        for (uint256 i; i < tokenCount; ++i) {
             tokenIds[i] = auction.tokenIds[i];
-
-            unchecked {
-                ++i;
-            }
         }
 
         return tokenIds;
@@ -592,7 +580,7 @@ contract EnsAuctions is Ownable {
             revert MaxTokensPerTxReached();
         }
 
-        for (uint256 i; i < tokenIds.length; ) {
+        for (uint256 i; i < tokenIds.length; ++i) {
             uint256 tokenId = tokenIds[i];
 
             if (auctionTokens[tokenId]) {
@@ -603,10 +591,6 @@ contract EnsAuctions is Ownable {
 
             if (ENS.ownerOf(tokenId) != msg.sender) {
                 revert TokenNotOwned();
-            }
-
-            unchecked {
-                ++i;
             }
         }
     }
@@ -624,14 +608,10 @@ contract EnsAuctions is Ownable {
 
         mapping(uint256 => uint256) storage tokenMap = auction.tokenIds;
 
-        for (uint256 i; i < tokenCount; ) {
+        for (uint256 i; i < tokenCount; ++i) {
             uint256 tokenId = tokenMap[i];
             auctionTokens[tokenId] = false;
             ENS.transferFrom(seller, highestBidder, tokenId);
-
-            unchecked {
-                ++i;
-            }
         }
     }
 
@@ -646,13 +626,9 @@ contract EnsAuctions is Ownable {
 
         mapping(uint256 => uint256) storage tokenMap = auction.tokenIds;
 
-        for (uint256 i; i < tokenCount; ) {
+        for (uint256 i; i < tokenCount; ++i) {
             uint256 tokenId = tokenMap[i];
             auctionTokens[tokenId] = false;
-
-            unchecked {
-                ++i;
-            }
         }
     }
 

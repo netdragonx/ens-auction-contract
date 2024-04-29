@@ -4,44 +4,75 @@ pragma solidity ^0.8.25;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "solady/src/auth/Ownable.sol";
+import "./IEnsAuctions.sol";
 
-enum Status {
-    Active,
-    BuyNow,
-    Claimed,
-    Unclaimable,
-    Abandoned
-}
+//                  ░▒▓████████▓▒░▒▓███████▓▒░ ░▒▓███████▓▒░
+//                  ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░       
+//                  ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░       
+//                  ░▒▓██████▓▒░ ░▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░ 
+//                  ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░      ░▒▓█▓▒░
+//                  ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░      ░▒▓█▓▒░
+//                  ░▒▓████████▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓███████▓▒  
+//
+//                                ___________
+//                                \         /
+//                                 )_______(
+//                                 |"""""""|_.-._,.---------.,_.-._
+//                                 |       | | |               | | ''-.
+//                                 |       |_| |_             _| |_..-'
+//                                 |_______| '-' `'---------'` '-'
+//                                 )"""""""(
+//                                /_________\
+//                                `'-------'`
+//                              .-------------.
+//                             /_______________\
+//    
+//   ░▒▓██████▓▒  ▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░▒▓████████▓▒░▒▓█▓▒  ▒▓██████▓▒  ▒▓███████▓▒░  
+//  ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
+//  ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░        ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
+//  ░▒▓████████▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░        ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
+//  ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░        ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
+//  ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
+//  ░▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░ ░▒▓██████▓▒░  ░▒▓█▓▒░   ░▒▓█▓▒  ▒▓██████▓▒  ▒▓█▓▒  ▒▓█▓▒░ 
+//                                                                   https://ens.auction
 
-struct Bidder {
-    uint16 totalBids;
-    uint16 totalOutbids;
-    uint16 totalClaimed;
-    uint16 totalBuyNow;
-    uint16 totalAbandoned;
-    uint256 balance;
-}
+contract EnsAuctions is IEnsAuctions, Ownable {
+    enum Status {
+        Active,
+        BuyNow,
+        Claimed,
+        Unclaimable,
+        Abandoned
+    }
 
-struct Seller {
-    uint16 totalAuctions;
-    uint16 totalSold;
-    uint16 totalUnclaimable;
-}
+    struct Bidder {
+        uint16 totalBids;
+        uint16 totalOutbids;
+        uint16 totalClaimed;
+        uint16 totalBuyNow;
+        uint16 totalAbandoned;
+        uint256 balance;
+    }
 
-struct Auction {
-    uint64 endTime;
-    uint64 buyNowEndTime;
-    uint8 tokenCount;
-    Status status;
-    address seller;
-    address highestBidder;
-    uint256 highestBid;
-    uint256 startingPrice;
-    uint256 buyNowPrice;
-    mapping(uint256 => uint256) tokenIds;
-}
+    struct Seller {
+        uint16 totalAuctions;
+        uint16 totalSold;
+        uint16 totalUnclaimable;
+    }
 
-contract EnsAuctions is Ownable {
+    struct Auction {
+        uint64 endTime;
+        uint64 buyNowEndTime;
+        uint8 tokenCount;
+        Status status;
+        address seller;
+        address highestBidder;
+        uint256 highestBid;
+        uint256 startingPrice;
+        uint256 buyNowPrice;
+        mapping(uint256 => uint256) tokenIds;
+    }
+
     IERC721 public immutable ENS;
 
     uint256 public maxTokens = 10;
@@ -62,50 +93,6 @@ contract EnsAuctions is Ownable {
     mapping(uint256 => bool) public auctionTokens;
     mapping(address => Seller) public sellers;
     mapping(address => Bidder) public bidders;
-
-    error AuctionAbandoned();
-    error AuctionActive();
-    error AuctionBuyNowPeriod();
-    error AuctionClaimed();
-    error AuctionEnded();
-    error AuctionNotActive();
-    error AuctionNotClaimed();
-    error AuctionNotEnded();
-    error AuctionWithdrawn();
-    error BidTooLow();
-    error BuyNowTooLow();
-    error BuyNowUnavailable();
-    error InvalidValue();
-    error InvalidFee();
-    error InvalidLengthOfAmounts();
-    error InvalidLengthOfTokenIds();
-    error MaxTokensPerTxReached();
-    error NotApproved();
-    error NotAuthorized();
-    error NotEnoughTokensInSupply();
-    error NotHighestBidder();
-    error SellerCannotBid();
-    error SettlementPeriodNotExpired();
-    error SettlementPeriodEnded();
-    error StartPriceTooLow();
-    error TokenAlreadyInAuction();
-    error TokenNotOwned();
-    error TransferFailed();
-
-    event Started(
-        uint256 auctionId,
-        address seller,
-        uint256 startingPrice,
-        uint256 buyNowPrice,
-        uint64 endTime,
-        uint64 buyNowEndTime,
-        uint8 tokenCount,
-        uint256[] tokenIds
-    );
-    event BuyNow(uint256 indexed auctionId, address buyer, uint256 value);
-    event Bid(uint256 indexed auctionId, address bidder, uint256 value);
-    event Claimed(uint256 indexed auctionId, address winner);
-    event Abandoned(uint256 indexed auctionId);
 
     constructor(address owner, address ensAddress) {
         _initializeOwner(owner);

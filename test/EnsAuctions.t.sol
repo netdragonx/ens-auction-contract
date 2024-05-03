@@ -473,7 +473,7 @@ contract EnsAuctionsTest is Test {
         auctions.markAbandoned(auctionId);
 
         vm.startPrank(user1);
-        vm.expectRevert(bytes4(keccak256("AuctionAbandoned()")));
+        vm.expectRevert(bytes4(keccak256("InvalidStatus()")));
         auctions.claim(auctionId);
     }
 
@@ -491,17 +491,8 @@ contract EnsAuctionsTest is Test {
         skip(auctions.auctionDuration() + 1);
         
         auctions.claim(auctionId);
-        vm.expectRevert(bytes4(keccak256("AuctionClaimed()")));
+        vm.expectRevert(bytes4(keccak256("InvalidStatus()")));
         auctions.claim(auctionId);
-    }
-
-    //
-    // withdraw
-    //
-    function test_withdraw_Success() public {
-        vm.deal(address(this), 1 ether);
-        vm.startPrank(address(this));
-        auctions.withdraw();
     }
 
     //

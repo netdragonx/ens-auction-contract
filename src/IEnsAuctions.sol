@@ -9,7 +9,6 @@ interface IEnsAuctions {
     function markAbandoned(uint256 auctionId) external;
     function markUnclaimable(uint256 auctionId) external;
     function calculateFee(address sellerAddress) external view returns (uint256);
-    function withdraw() external;
     function withdrawBalance() external;
     
     function getAuctionTokens(uint256 auctionId) external view returns (uint256[] memory);
@@ -40,10 +39,8 @@ interface IEnsAuctions {
     event Claimed(uint256 indexed auctionId, address winner);
     event Abandoned(uint256 indexed auctionId);
 
-    error AuctionAbandoned();
     error AuctionActive();
     error AuctionBuyNowPeriod();
-    error AuctionClaimed();
     error AuctionEnded();
     error AuctionNotActive();
     error AuctionNotClaimed();
@@ -56,6 +53,7 @@ interface IEnsAuctions {
     error InvalidFee();
     error InvalidLengthOfAmounts();
     error InvalidLengthOfTokenIds();
+    error InvalidStatus();
     error MaxTokensPerTxReached();
     error NotApproved();
     error NotAuthorized();

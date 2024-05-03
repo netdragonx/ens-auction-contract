@@ -1,31 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import "solady/src/auth/Ownable.sol";
-import "./IEnsAuctions.sol";
-
-//                    ░▒▓████████▓▒░▒▓███████▓▒░ ░▒▓███████▓▒░
-//                    ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░       
-//                    ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░       
-//                    ░▒▓██████▓▒░ ░▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░ 
-//                    ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░      ░▒▓█▓▒░
-//                    ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░      ░▒▓█▓▒░
-//                    ░▒▓████████▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓███████▓▒  
+//                     ░▒▓████████▓▒░▒▓███████▓▒░ ░▒▓███████▓▒░
+//                     ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░       
+//                     ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░       
+//                     ░▒▓██████▓▒░ ░▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░ 
+//                     ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░      ░▒▓█▓▒░
+//                     ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░      ░▒▓█▓▒░
+//                     ░▒▓████████▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓███████▓▒  
 //
-//                       ___________
-//                       \         /
-//                        )_______(
-//                        |"""""""|_.-._,.---------.,_.-._
-//                        |       | | |               | | ''-.
-//                        |       |_| |_             _| |_..-'
-//                        |_______| '-' `'---------'` '-'
-//                        )"""""""(
-//                       /_________\
-//                       `'-------'`
-//                     .-------------.
-//                    /_______________\
+//                        ___________
+//                        \         /
+//                         )_______(
+//                         |"""""""|_.-._,.---------.,_.-._
+//                         |       | | |               | | ''-.
+//                         |       |_| |_             _| |_..-'
+//                         |_______| '-' `'---------'` '-'
+//                         )"""""""(
+//                        /_________\
+//                        `'-------'`
+//                      .-------------.
+//                     /_______________\
 //    
 //   ░▒▓██████▓▒  ▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░▒▓████████▓▒░▒▓█▓▒  ▒▓██████▓▒  ▒▓███████▓▒░  
 //  ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
@@ -35,6 +30,11 @@ import "./IEnsAuctions.sol";
 //  ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
 //  ░▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░ ░▒▓██████▓▒░  ░▒▓█▓▒░   ░▒▓█▓▒  ▒▓██████▓▒  ▒▓█▓▒  ▒▓█▓▒░ 
 //                                                                   https://ens.auction
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "solady/src/auth/Ownable.sol";
+import "./IEnsAuctions.sol";
 
 contract EnsAuctions is IEnsAuctions, Ownable {
     enum Status {
@@ -176,8 +176,11 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      */
     function bid(uint256 auctionId, uint256 bidAmount) external payable {
         Auction storage auction = auctions[auctionId];
-
         Bidder storage bidder = bidders[msg.sender];
+
+        if (auction.status != Status.Active) {
+            revert InvalidStatus();
+        }
 
         if (
             block.timestamp < auction.buyNowEndTime && auction.buyNowPrice > 0
@@ -196,8 +199,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         if (block.timestamp >= auction.endTime - antiSnipeDuration) {
             auction.endTime += uint64(antiSnipeDuration);
         }
-
-        uint256 bidderBalance = bidder.balance;
+        
         uint256 minimumBid;
 
         if (auction.highestBid == 0) {
@@ -210,23 +212,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             revert BidTooLow();
         }
 
-        if (bidAmount > bidderBalance + msg.value) {
-            revert InvalidValue();
-        }
-
-        if (bidderBalance > bidAmount) {
-            if (msg.value > 0) {
-                revert InvalidValue();
-            }
-
-            bidder.balance -= bidAmount;
-        } else {
-            if (msg.value != bidAmount - bidderBalance) {
-                revert InvalidValue();
-            }
-
-            bidder.balance = 0;
-        }
+        _processPayment(bidAmount);
 
         ++bidder.totalBids;
 
@@ -247,7 +233,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
     /**
      *
-     * buyNow - Buy at buy now price *before* bidding begins
+     * buyNow - Buy now phase occurs *before* auction bidding begins
      *
      * @param auctionId - The id of the auction to buy
      *
@@ -257,7 +243,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         Bidder storage bidder = bidders[msg.sender];
 
         if (auction.status != Status.Active) {
-            revert AuctionNotActive();
+            revert InvalidStatus();
         }
 
         if (
@@ -266,22 +252,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             revert BuyNowUnavailable();
         }
 
-        uint256 bidderBalance = bidder.balance;
-
-        if (bidderBalance > auction.buyNowPrice) {
-            if (msg.value > 0) {
-                revert InvalidValue();
-            }
-
-            bidder.balance -= auction.buyNowPrice;
-        } else {
-            if (msg.value != auction.buyNowPrice - bidderBalance) {
-                revert InvalidValue();
-            }
-
-            bidder.balance = 0;
-        }
-
+        _processPayment(auction.buyNowPrice);
+        
         auction.status = Status.BuyNow;
         auction.highestBidder = msg.sender;
         auction.highestBid = auction.buyNowPrice;
@@ -289,10 +261,12 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         ++sellers[auction.seller].totalSold;
         ++bidder.totalBuyNow;
 
-        (bool success, ) = payable(auction.seller).call{value: msg.value}("");
-        if (!success) revert TransferFailed();
-
         _transferTokens(auction);
+
+        (bool successMsgValue, ) = payable(auction.seller).call{value: auction.buyNowPrice}("");
+        if (!successMsgValue) {
+            revert TransferFailed();
+        }
 
         emit BuyNow(auctionId, msg.sender, auction.buyNowPrice);
     }
@@ -308,14 +282,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         Auction storage auction = auctions[auctionId];
 
         if (auction.status != Status.Active) {
-            if (
-                auction.status == Status.Claimed ||
-                auction.status == Status.BuyNow
-            ) {
-                revert AuctionClaimed();
-            } else if (auction.status == Status.Abandoned) {
-                revert AuctionAbandoned();
-            }
+            revert InvalidStatus();
         }
 
         if (msg.sender != auction.highestBidder) {
@@ -347,14 +314,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         Auction storage auction = auctions[auctionId];
 
         if (auction.status != Status.Active) {
-            if (auction.status == Status.Abandoned) {
-                revert AuctionAbandoned();
-            } else if (
-                auction.status == Status.Claimed ||
-                auction.status == Status.BuyNow
-            ) {
-                revert AuctionClaimed();
-            }
+            revert InvalidStatus();
         }
 
         if (msg.sender != auction.seller) {
@@ -390,14 +350,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         Auction storage auction = auctions[auctionId];
 
         if (auction.status != Status.Active) {
-            if (auction.status == Status.Abandoned) {
-                revert AuctionAbandoned();
-            } else if (
-                auction.status == Status.Claimed ||
-                auction.status == Status.BuyNow
-            ) {
-                revert AuctionClaimed();
-            }
+            revert InvalidStatus();
         }
 
         if (block.timestamp > auction.endTime + settlementDuration) {
@@ -448,18 +401,6 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             linearFee *
             (seller.totalAuctions - seller.totalSold) +
             (penaltyFee * seller.totalUnclaimable));
-    }
-
-    /**
-     *
-     * withdraw - Withdraws the contract balance to the owner
-     *
-     */
-    function withdraw() external onlyOwner {
-        (bool success, ) = payable(msg.sender).call{
-            value: address(this).balance
-        }("");
-        if (!success) revert TransferFailed();
     }
 
     /**
@@ -583,6 +524,33 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     }
 
     /**
+     * processPayment - Process payment for a bid. If a bidder has a balance, use that first.
+     *
+     * @param paymentDue - The total amount due
+     *
+     */
+    function _processPayment(uint256 paymentDue) internal {
+        Bidder storage bidder = bidders[msg.sender];
+
+        uint256 paymentFromBalance = bidder.balance;
+        uint256 paymentFromMsgValue = msg.value;
+
+        if (bidder.balance >= paymentDue) {
+            paymentFromBalance = paymentDue;
+            paymentFromMsgValue = 0;
+        } else {
+            paymentFromBalance = bidder.balance;
+            paymentFromMsgValue = paymentDue - bidder.balance;
+        }
+
+        if (msg.value != paymentFromMsgValue) {
+            revert InvalidValue();
+        }
+
+        bidder.balance -= paymentFromBalance;
+    }
+
+    /**
      * _transferTokens - Transfer auction tokens to the highest bidder
      *
      * @param auction - The auction to transfer tokens from
@@ -619,7 +587,11 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         }
     }
 
-    receive() external payable {}
+    receive() external payable {
+        revert InvalidValue();
+    }
 
-    fallback() external payable {}
+    fallback() external payable {
+        revert InvalidValue();
+    }
 }

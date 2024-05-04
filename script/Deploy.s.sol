@@ -11,10 +11,10 @@ contract DeployScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        address owner = vm.envAddress("ADDRESS_DEPLOYER");
+        address feeRecipient = vm.envAddress("ADDRESS_FEE_RECIPIENT");
         address ensAddress = 0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85;
 
-        ensAuctions = new EnsAuctions(owner, ensAddress);
+        ensAuctions = new EnsAuctions(ensAddress, feeRecipient);
         
         console2.log("EnsAuctions contract: ", address(ensAuctions));
 

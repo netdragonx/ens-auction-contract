@@ -75,6 +75,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
     IERC721 public immutable ENS;
 
+    address public feeRecipient;
+
     uint256 public maxTokens = 10;
     uint256 public nextAuctionId = 1;
     uint256 public minStartingPrice = 0.01 ether;
@@ -94,8 +96,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     mapping(address => Seller) public sellers;
     mapping(address => Bidder) public bidders;
 
-    constructor(address owner, address ensAddress) {
-        _initializeOwner(owner);
+    constructor(address ensAddress, address feeRecipient_) {
+        _initializeOwner(msg.sender);
+        feeRecipient = feeRecipient_;
         ENS = IERC721(ensAddress);
     }
 
@@ -127,7 +130,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             revert BuyNowTooLow();
         }
 
-        if (buyNowPrice > 0 && buyNowPrice <= startingPrice) {
+        if (buyNowPrice <= startingPrice) {
             revert BuyNowTooLow();
         }
 
@@ -152,7 +155,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         ++sellers[msg.sender].totalAuctions;
 
-        (bool success, ) = owner().call{value: msg.value}("");
+        (bool success, ) = payable(feeRecipient).call{value: msg.value}("");
         if (!success) revert TransferFailed();
 
         emit Started(
@@ -182,9 +185,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             revert InvalidStatus();
         }
 
-        if (
-            block.timestamp < auction.buyNowEndTime && auction.buyNowPrice > 0
-        ) {
+        if (block.timestamp < auction.buyNowEndTime) {
             revert AuctionBuyNowPeriod();
         }
 
@@ -246,9 +247,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             revert InvalidStatus();
         }
 
-        if (
-            auction.buyNowPrice == 0 || block.timestamp > auction.buyNowEndTime
-        ) {
+        if (block.timestamp > auction.buyNowEndTime) {
             revert BuyNowUnavailable();
         }
 
@@ -331,9 +330,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         _resetTokens(auction);
 
-        (bool success, ) = payable(auction.highestBidder).call{
-            value: auction.highestBid
-        }("");
+        (bool success, ) = payable(auction.highestBidder).call{ value: auction.highestBid }("");
         if (!success) revert TransferFailed();
 
         emit Abandoned(auctionId);
@@ -379,9 +376,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         _resetTokens(auction);
 
-        (bool success, ) = payable(auction.highestBidder).call{
-            value: auction.highestBid
-        }("");
+        (bool success, ) = payable(auction.highestBidder).call{ value: auction.highestBid }("");
         if (!success) revert TransferFailed();
 
         emit Abandoned(auctionId);
@@ -389,9 +384,21 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
     /**
      *
-     * calculateFee - Calculates the auction fee based on previous unsold auctions.
+     * calculateFee - Calculates the auction fee based on seller history
      *
      * @param sellerAddress - Address of seller
+     *
+     * baseFee: minimal fee for all auctions.
+     * linearFee: fee that increases linearly for unsold auctions (0 if none).
+     * penaltyFee: fee charged for each auction a buyer marked unclaimable
+     *
+     * Dynamic fees are designed to encourage sellers to:
+     *
+     *  a) use Starting Price / Buy Now prices that reflect market conditions
+     *  b) list high quality names
+     *  c) prevent listing spam
+     *  d) make sure all auctions remain claimable
+     * 
      */
 
     function calculateFee(address sellerAddress) public view returns (uint256) {

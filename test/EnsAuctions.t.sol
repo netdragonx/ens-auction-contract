@@ -9,6 +9,7 @@ contract EnsAuctionsTest is Test {
     EnsAuctions public auctions;
     Mock721 public mockEns;
 
+    address public feeRecipient;
     address public user1;
     address public user2;
     address public user3;
@@ -18,13 +19,16 @@ contract EnsAuctionsTest is Test {
 
     uint256 public tokenCount = 10;
     uint256[] public tokenIds = [0, 1, 2];
+    uint256[] public tokenIds1 = [0];
+    uint256[] public tokenIds2 = [1];
+    uint256[] public tokenIds3 = [2];
 
     receive() external payable {}
     fallback() external payable {}
 
     function setUp() public {
         mockEns = new Mock721();
-        auctions = new EnsAuctions(address(this), address(mockEns));
+        auctions = new EnsAuctions(address(mockEns), address(feeRecipient));
 
         user1 = vm.addr(1);
         user2 = vm.addr(2);
@@ -52,6 +56,7 @@ contract EnsAuctionsTest is Test {
         auctions.startAuction{value: fee}(tokenIds, startingPrice, buyNowPrice);
         assertEq(user1.balance, startBalance - fee, "Balance should decrease by fee");
         assertEq(auctions.nextAuctionId(), 2, "nextAuctionId should be incremented");
+        assertEq(feeRecipient.balance, fee, "feeRecipient should have received the fee");
 
         (
             uint64 _endTime, 
@@ -188,6 +193,29 @@ contract EnsAuctionsTest is Test {
         auctions.startAuction{value: fee}(notOwnedTokenIds, startingPrice, buyNowPrice);
     }
 
+    function test_startAuction_Fees() public {
+        vm.startPrank(user1);
+        uint256 startBalance = user1.balance;
+        
+        uint256 fee1 = auctions.calculateFee(user1);
+        auctions.startAuction{value: fee1}(tokenIds1, startingPrice, buyNowPrice);
+
+        uint256 fee2 = auctions.calculateFee(user1);
+        auctions.startAuction{value: fee2}(tokenIds2, startingPrice, buyNowPrice);
+
+        uint256 fee3 = auctions.calculateFee(user1);
+        auctions.startAuction{value: fee3}(tokenIds3, startingPrice, buyNowPrice);
+
+        // uint256 public baseFee = 0.05 ether;
+        // uint256 public linearFee = 0.01 ether;
+        // uint256 public penaltyFee = 0.01 ether;
+        assertEq(user1.balance, startBalance - fee1 - fee2 - fee3, "Balance should decrease by fee");
+        assertEq(feeRecipient.balance, fee1 + fee2 + fee3, "feeRecipient should have received the fee");
+        assertEq(fee1, 0.05 ether, "base fee is 0.05 ether");
+        assertEq(fee2, 0.06 ether, "fee w/ linear fee is 0.06 ether");
+        assertEq(fee3, 0.07 ether, "fee w/ linear fee * 2 is 0.07 ether");
+    }
+
     //
     // bid()
     //
@@ -239,7 +267,7 @@ contract EnsAuctionsTest is Test {
     function test_bid_Success_UsingAvailableBalance() public {
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, 0.01 ether, buyNowPrice);
-        
+
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
@@ -370,7 +398,10 @@ contract EnsAuctionsTest is Test {
     //
     function test_buyNow_Success() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        uint256 fee = auctions.calculateFee(user1);
+        auctions.startAuction{value: fee}(tokenIds, startingPrice, buyNowPrice);
+
+        assertEq(feeRecipient.balance, fee, "feeRecipient should receive fee");
 
         vm.startPrank(user2);
         auctions.buyNow{value: buyNowPrice}(1);

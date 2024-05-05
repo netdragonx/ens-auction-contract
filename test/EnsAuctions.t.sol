@@ -587,7 +587,7 @@ contract EnsAuctionsTest is Test {
     //
     // markUnclaimable()
     //
-    function test_markUnclaimable_Success() public {
+    function test_markUnclaimable_Success_SellerMovesTokens() public {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
@@ -596,7 +596,14 @@ contract EnsAuctionsTest is Test {
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
+
+        // user1 moves a token mid auction
+        vm.startPrank(user1);
+        mockEns.transferFrom(user1, user3, tokenIds[0]);
+
         skip(auctions.auctionDuration() + 1);
+
+        vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
 
         (,,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,) = auctions.auctions(auctionId);
@@ -606,7 +613,96 @@ contract EnsAuctionsTest is Test {
         assertEq(highestBid, startingPrice, "Highest bid should be 0.06 ether");
     }
 
-    
+    function test_markUnclaimable_Success_SellerRemovesApprovalForAll() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+
+        // user1 moves a token mid auction
+        vm.startPrank(user1);
+        mockEns.setApprovalForAll(address(auctions), false);
+        
+        skip(auctions.auctionDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.markUnclaimable(auctionId);
+
+        (,,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,) = auctions.auctions(auctionId);
+
+        assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
+        assertEq(highestBidder, user2, "Highest bidder should be user2");
+        assertEq(highestBid, startingPrice, "Highest bid should be 0.06 ether");
+    }
+
+    function test_markUnclaimable_Success_SellerRemovesApprovalForOne() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        mockEns.setApprovalForAll(address(auctions), false);
+        mockEns.approve(address(auctions), tokenIds[0]);
+        mockEns.approve(address(auctions), tokenIds[1]);
+        mockEns.approve(address(auctions), tokenIds[2]);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+
+        // user1 disapproves a token mid auction
+        vm.startPrank(user1);
+        mockEns.approve(address(0), tokenIds[0]);
+        
+        skip(auctions.auctionDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.markUnclaimable(auctionId);
+
+        (,,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,) = auctions.auctions(auctionId);
+
+        assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
+        assertEq(highestBidder, user2, "Highest bidder should be user2");
+        assertEq(highestBid, startingPrice, "Highest bid should be 0.06 ether");
+    }
+
+    function test_markUnclaimable_RevertIf_AuctionIsClaimable() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+        skip(auctions.auctionDuration() + 1);
+
+        vm.expectRevert(bytes4(keccak256("AuctionIsClaimable()")));
+        auctions.markUnclaimable(auctionId);
+    }
+
+    function test_markUnclaimable_RevertIf_AuctionIsClaimableViaSoloApprovals() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        mockEns.setApprovalForAll(address(auctions), false);
+        mockEns.approve(address(auctions), tokenIds[0]);
+        mockEns.approve(address(auctions), tokenIds[1]);
+        mockEns.approve(address(auctions), tokenIds[2]);
+
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+        skip(auctions.auctionDuration() + 1);
+
+        vm.expectRevert(bytes4(keccak256("AuctionIsClaimable()")));
+        auctions.markUnclaimable(auctionId);
+    }
 
     //
     // withdrawBalance

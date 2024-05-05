@@ -75,9 +75,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     }
 
     IERC721 public immutable ENS;
-
     address public feeRecipient;
-
     uint256 public maxTokens = 10;
     uint256 public nextAuctionId = 1;
     uint256 public minStartingPrice = 0.01 ether;
@@ -90,7 +88,6 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     uint256 public baseFee = 0.05 ether;
     uint256 public linearFee = 0.01 ether;
     uint256 public penaltyFee = 0.01 ether;
-    uint256 public totalFees;
 
     mapping(uint256 => Auction) public auctions;
     mapping(uint256 => bool) public auctionTokens;
@@ -99,8 +96,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
     constructor(address ensAddress, address feeRecipient_) {
         _initializeOwner(msg.sender);
-        feeRecipient = feeRecipient_;
         ENS = IERC721(ensAddress);
+        feeRecipient = feeRecipient_;
     }
 
     /**
@@ -364,17 +361,23 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             revert NotHighestBidder();
         }
 
+        bool isClaimable = true;
+        bool allApproved = ENS.isApprovedForAll(auction.seller, address(this));
+
         for (uint256 i; i < auction.tokenCount; ++i) {
             uint256 tokenId = auction.tokenIds[i];
 
-            if (ENS.ownerOf(tokenId) != auction.seller) {
-                revert TokenNotOwned();
+            isClaimable = isClaimable 
+                && (ENS.ownerOf(tokenId) == auction.seller)
+                && (allApproved || ENS.getApproved(tokenId) == address(this));
+            
+            if (!isClaimable) {
+                break;
             }
+        }
 
-            if (ENS.getApproved(tokenId) != address(this) 
-            && !ENS.isApprovedForAll(auction.seller, address(this))) {
-                revert NotApproved();
-            }
+        if (isClaimable) {
+            revert AuctionIsClaimable();
         }
 
         auction.status = Status.Unclaimable;
@@ -386,7 +389,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         (bool success, ) = payable(auction.highestBidder).call{ value: auction.highestBid }("");
         if (!success) revert TransferFailed();
 
-        emit Abandoned(auctionId);
+        emit Unclaimable(auctionId);
     }
 
     /**
@@ -428,11 +431,13 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         (bool success, ) = payable(msg.sender).call{value: balance}("");
         if (!success) revert TransferFailed();
+
+        emit Withdrawn(msg.sender, balance);
     }
 
     /**
      *
-     * Getters & Setters
+     * Views
      *
      */
 
@@ -450,52 +455,70 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         return tokenIds;
     }
 
+    /**
+     *
+     * Setters
+     *
+     */
+
+    function setFeeRecipient(address feeRecipient_) external onlyOwner {
+        feeRecipient = feeRecipient_;
+        emit FeeRecipientUpdated(feeRecipient_);
+    }
+
     function setMaxTokens(uint256 maxTokens_) external onlyOwner {
         maxTokens = maxTokens_;
+        emit MaxTokensUpdated(maxTokens_);
     }
 
     function setMinBuyNowPrice(uint256 minBuyNowPrice_) external onlyOwner {
         minBuyNowPrice = minBuyNowPrice_;
+        emit MinBuyNowPriceUpdated(minBuyNowPrice_);
     }
 
     function setMinStartingBid(uint256 minStartingPrice_) external onlyOwner {
         minStartingPrice = minStartingPrice_;
+        emit MinStartingBidUpdated(minStartingPrice_);
     }
 
     function setMinBidIncrement(uint256 minBidIncrement_) external onlyOwner {
         minBidIncrement = minBidIncrement_;
+        emit MinBidIncrementUpdated(minBidIncrement_);
     }
 
     function setAuctionDuration(uint256 auctionDuration_) external onlyOwner {
         auctionDuration = auctionDuration_;
+        emit AuctionDurationUpdated(auctionDuration_);
     }
 
     function setBuyNowDuration(uint256 buyNowDuration_) external onlyOwner {
         buyNowDuration = buyNowDuration_;
+        emit BuyNowDurationUpdated(buyNowDuration_);
     }
 
-    function setSettlementDuration(
-        uint256 settlementDuration_
-    ) external onlyOwner {
+    function setSettlementDuration(uint256 settlementDuration_) external onlyOwner {
         settlementDuration = settlementDuration_;
+        emit SettlementDurationUpdated(settlementDuration_);
     }
 
-    function setAntiSnipeDuration(
-        uint256 antiSnipeDuration_
-    ) external onlyOwner {
+    function setAntiSnipeDuration(uint256 antiSnipeDuration_) external onlyOwner {
         antiSnipeDuration = antiSnipeDuration_;
+        emit AntiSnipeDurationUpdated(antiSnipeDuration_);
     }
 
     function setBaseFee(uint256 baseFee_) external onlyOwner {
         baseFee = baseFee_;
+        emit BaseFeeUpdated(baseFee_);
     }
 
     function setLinearFee(uint256 linearFee_) external onlyOwner {
         linearFee = linearFee_;
+        emit LinearFeeUpdated(linearFee_);
     }
 
     function setPenaltyFee(uint256 penaltyFee_) external onlyOwner {
         penaltyFee = penaltyFee_;
+        emit PenaltyFeeUpdated(penaltyFee_);
     }
 
     /**

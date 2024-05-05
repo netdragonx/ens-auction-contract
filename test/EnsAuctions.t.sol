@@ -255,7 +255,7 @@ contract EnsAuctionsTest is Test {
         auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
         (uint256 endTimeA,,,,,,,,) = auctions.auctions(1);
 
-        skip(60 * 60 * 24 * 7 - 59); // 1 second before auction ends
+        skip(60 * 60 * 24 * 3 - 59); // 1 second before auction ends
 
         vm.startPrank(user2);
         auctions.bid{value: 0.06 ether}(1, 0.06 ether);

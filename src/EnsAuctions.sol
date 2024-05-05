@@ -31,7 +31,6 @@ pragma solidity ^0.8.25;
 //  ░▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░ ░▒▓██████▓▒░  ░▒▓█▓▒░   ░▒▓█▓▒  ▒▓██████▓▒  ▒▓█▓▒  ▒▓█▓▒░ 
 //                                                                   https://ens.auction
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "solady/src/auth/Ownable.sol";
 import "./IEnsAuctions.sol";
@@ -81,7 +80,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     uint256 public minStartingPrice = 0.01 ether;
     uint256 public minBuyNowPrice = 0.05 ether;
     uint256 public minBidIncrement = 0.01 ether;
-    uint256 public auctionDuration = 7 days;
+    uint256 public auctionDuration = 3 days;
     uint256 public buyNowDuration = 4 hours;
     uint256 public settlementDuration = 7 days;
     uint256 public antiSnipeDuration = 10 minutes;

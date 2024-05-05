@@ -42,6 +42,7 @@ interface IEnsAuctions {
     error AuctionActive();
     error AuctionBuyNowPeriod();
     error AuctionEnded();
+    error AuctionHadNoBids();
     error AuctionNotActive();
     error AuctionNotClaimed();
     error AuctionNotEnded();

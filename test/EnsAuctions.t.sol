@@ -3,6 +3,7 @@ pragma solidity ^0.8.25;
 
 import "forge-std/Test.sol";
 import "../src/EnsAuctions.sol";
+import "../src/IEnsAuctions.sol";
 import "./lib/Mock721.sol";
 
 contract EnsAuctionsTest is Test {
@@ -525,6 +526,87 @@ contract EnsAuctionsTest is Test {
         vm.expectRevert(bytes4(keccak256("InvalidStatus()")));
         auctions.claim(auctionId);
     }
+
+
+    //
+    // markAbandoned()
+    //
+    function test_markAbandoned_Success() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+
+        skip(auctions.auctionDuration() + auctions.settlementDuration() + 1);
+
+        vm.startPrank(user1);
+        auctions.markAbandoned(auctionId);
+
+        (,,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,) = auctions.auctions(auctionId);
+
+        assertTrue(status == EnsAuctions.Status.Abandoned, "Status should be Abandoned");
+        assertEq(highestBidder, user2, "Highest bidder should be user2");
+        assertEq(highestBid, startingPrice, "Highest bid should be startingPrice");
+    }
+
+    function test_markAbandoned_RevertIf_AuctionAbandoned() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+
+        skip(auctions.auctionDuration() + auctions.settlementDuration() + 1);
+
+        vm.startPrank(user1);
+        auctions.markAbandoned(auctionId);
+
+        vm.expectRevert(bytes4(keccak256("InvalidStatus()")));
+        auctions.markAbandoned(auctionId);
+    }
+
+    function test_markAbandoned_RevertIf_AuctionHadNoBids() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        skip(auctions.buyNowDuration() + auctions.auctionDuration() + auctions.settlementDuration() + 1);
+        
+        vm.expectRevert(bytes4(keccak256("AuctionHadNoBids()")));
+        auctions.markAbandoned(auctionId);
+    }
+
+    //
+    // markUnclaimable()
+    //
+    function test_markUnclaimable_Success() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+        skip(auctions.auctionDuration() + 1);
+        auctions.markUnclaimable(auctionId);
+
+        (,,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,) = auctions.auctions(auctionId);
+
+        assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
+        assertEq(highestBidder, user2, "Highest bidder should be user2");
+        assertEq(highestBid, startingPrice, "Highest bid should be 0.06 ether");
+    }
+
+    
 
     //
     // withdrawBalance

@@ -58,6 +58,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         uint16 totalAuctions;
         uint16 totalSold;
         uint16 totalUnclaimable;
+        uint16 totalBidderAbandoned;
     }
 
     struct Auction {
@@ -306,7 +307,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      *
      * abandon - Seller can mark unclaimed auctions as abandoned after the settlement period
      *
-     * @param auctionId - The id of the auction to abandon
+     * @param auctionId - The id of the auction to mark abandoned
      *
      */
     function markAbandoned(uint256 auctionId) external {
@@ -324,9 +325,14 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             revert SettlementPeriodNotExpired();
         }
 
+        if (auction.highestBidder == address(0)) {
+            revert AuctionHadNoBids();
+        }
+
         auction.status = Status.Abandoned;
 
         ++bidders[auction.highestBidder].totalAbandoned;
+        ++sellers[auction.seller].totalBidderAbandoned;
 
         _resetTokens(auction);
 
@@ -365,12 +371,13 @@ contract EnsAuctions is IEnsAuctions, Ownable {
                 revert TokenNotOwned();
             }
 
-            if (ENS.getApproved(tokenId) != address(this)) {
+            if (ENS.getApproved(tokenId) != address(this) 
+            && !ENS.isApprovedForAll(auction.seller, address(this))) {
                 revert NotApproved();
             }
         }
 
-        auction.status = Status.Abandoned;
+        auction.status = Status.Unclaimable;
 
         ++sellers[auction.seller].totalUnclaimable;
 
@@ -405,8 +412,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         Seller storage seller = sellers[sellerAddress];
 
         return (baseFee +
-            linearFee *
-            (seller.totalAuctions - seller.totalSold) +
+            linearFee * (seller.totalAuctions - seller.totalSold - seller.totalBidderAbandoned) +
             (penaltyFee * seller.totalUnclaimable));
     }
 
@@ -430,9 +436,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      *
      */
 
-    function getAuctionTokens(
-        uint256 auctionId
-    ) external view returns (uint256[] memory) {
+    function getAuctionTokens(uint256 auctionId) external view returns (uint256[] memory) {
         Auction storage auction = auctions[auctionId];
 
         uint256[] memory tokenIds = new uint256[](auction.tokenCount);

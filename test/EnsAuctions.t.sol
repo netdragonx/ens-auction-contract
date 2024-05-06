@@ -20,6 +20,8 @@ contract EnsAuctionsTest is Test {
 
     uint256 public tokenCount = 10;
     uint256[] public tokenIds = [0, 1, 2];
+    uint256[] public tokenIdsB = [10, 11, 12];
+
     uint256[] public tokenIds1 = [0];
     uint256[] public tokenIds2 = [1];
     uint256[] public tokenIds3 = [2];
@@ -40,8 +42,12 @@ contract EnsAuctionsTest is Test {
         vm.deal(user3, 1 ether);
 
         mockEns.mint(user1, tokenCount);
-        
+        mockEns.mint(user2, tokenCount);
+
         vm.prank(user1);
+        mockEns.setApprovalForAll(address(auctions), true);
+
+        vm.prank(user2);
         mockEns.setApprovalForAll(address(auctions), true);
     }
 
@@ -427,6 +433,20 @@ contract EnsAuctionsTest is Test {
         assertEq(totalBuyNow, 1, "should have 1 total buy now");
         assertEq(totalAbandoned, 0, "should have 0 total abandoned");
         assertEq(balance, 0, "balance should be 0 ether");
+
+        (
+            uint16 totalAuctions,
+            uint16 totalSold,
+            uint16 totalUnclaimable,
+            uint16 totalBidderAbandoned,
+            uint256 sellerBalance
+        ) = auctions.sellers(user1);
+        
+        assertEq(totalAuctions, 1, "should have 1 total auctions");
+        assertEq(totalSold, 1, "should have 1 total sold");
+        assertEq(totalUnclaimable, 0, "should have 0 total unclaimable");
+        assertEq(totalBidderAbandoned, 0, "should have 0 total bidder abandoned");
+        assertEq(sellerBalance, 0.05 ether, "seller balance should be 0.05 ether");
     }
 
     //
@@ -455,6 +475,20 @@ contract EnsAuctionsTest is Test {
         assertEq(mockEns.ownerOf(tokenIds[0]), user2, "Should own token 0");
         assertEq(mockEns.ownerOf(tokenIds[1]), user2, "Should own token 1");
         assertEq(mockEns.ownerOf(tokenIds[2]), user2, "Should own token 2");
+
+        (
+            uint16 totalAuctions,
+            uint16 totalSold,
+            uint16 totalUnclaimable,
+            uint16 totalBidderAbandoned,
+            uint256 sellerBalance
+        ) = auctions.sellers(user1);
+        
+        assertEq(totalAuctions, 1, "should have 1 total auctions");
+        assertEq(totalSold, 1, "should have 1 total sold");
+        assertEq(totalUnclaimable, 0, "should have 0 total unclaimable");
+        assertEq(totalBidderAbandoned, 0, "should have 0 total bidder abandoned");
+        assertEq(sellerBalance, startingPrice, "seller balance should be 0.05 ether");
     }
 
     function test_claim_RevertIf_BeforeAuctionEnded() public {
@@ -728,6 +762,67 @@ contract EnsAuctionsTest is Test {
         assertEq(user2.balance, 1 ether);
     }
 
+    function test_withdrawBalance_Success_Combined_BidderSeller() public {
+        uint256 user1Fee = auctions.calculateFee(user1);
+        uint256 user1Bid = 0.05 ether;
+        uint256 user2Fee = auctions.calculateFee(user2);
+        uint256 user2Bid = 0.01 ether;
+        uint256 user3BidA = 0.02 ether;
+        uint256 user3BidB = 0.06 ether;
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: user1Fee}(tokenIds, 0.01 ether, buyNowPrice);
+        
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: user2Bid}(1, user2Bid);
+        auctions.startAuction{value: user2Fee}(tokenIdsB, 0.02 ether, buyNowPrice);
+
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user1);
+        auctions.bid{value: user1Bid}(2, user1Bid);
+        
+        vm.startPrank(user3);
+        auctions.bid{value: user3BidA}(1, user3BidA);
+        auctions.bid{value: user3BidB}(2, user3BidB);
+
+        (,,,,, address highestBidder1, uint256 highestBid1,,) = auctions.auctions(1);
+        assertEq(highestBid1, user3BidA);
+        assertEq(highestBidder1, user3);
+
+        (,,,,, address highestBidder2, uint256 highestBid2,,) = auctions.auctions(2);
+        assertEq(highestBid2, user3BidB);
+        assertEq(highestBidder2, user3);
+
+        skip(auctions.auctionDuration() + 1);
+
+        vm.startPrank(user1);
+        assertEq(user1.balance, 1 ether - user1Fee - user1Bid);
+        auctions.withdrawBalance();
+        assertEq(user1.balance, 1 ether - user1Fee);
+        
+        vm.startPrank(user2);
+        assertEq(user2.balance, 1 ether - user2Fee - user2Bid);
+        auctions.withdrawBalance();
+        assertEq(user2.balance, 1 ether - user2Fee);
+
+        vm.startPrank(user3);
+        auctions.claim(1);
+        auctions.claim(2);
+
+        vm.startPrank(user1);
+        assertEq(user1.balance, 1 ether - user1Fee);
+        auctions.withdrawBalance();
+        assertEq(user1.balance, 1 ether - user1Fee + user3BidA);
+        
+        vm.startPrank(user2);
+        assertEq(user2.balance, 1 ether - user2Fee);
+        auctions.withdrawBalance();
+        assertEq(user2.balance, 1 ether - user2Fee + user3BidB);
+    }
+
     //
     // getters/setters
     //
@@ -807,5 +902,25 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(vm.addr(69));
         vm.expectRevert(bytes4(keccak256("Unauthorized()")));
         auctions.setSettlementDuration(60 * 60 * 24 * 7);
+    }
+
+    function test_setBuyNowDuration_Success() public {
+        auctions.setBuyNowDuration(60 * 60 * 24 * 7);
+    }
+
+    function test_setBuyNowDuration_RevertIf_NotOwner() public {
+        vm.startPrank(vm.addr(69));
+        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
+        auctions.setBuyNowDuration(60 * 60 * 24 * 7);
+    }
+
+    function test_setFeeRecipient_Success() public {
+        auctions.setFeeRecipient(vm.addr(69));
+    }
+
+    function test_setFeeRecipient_RevertIf_NotOwner() public {
+        vm.startPrank(vm.addr(69));
+        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
+        auctions.setFeeRecipient(vm.addr(69));
     }
 }

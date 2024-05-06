@@ -58,6 +58,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         uint16 totalSold;
         uint16 totalUnclaimable;
         uint16 totalBidderAbandoned;
+        uint256 balance;
     }
 
     struct Auction {
@@ -254,15 +255,12 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         auction.highestBidder = msg.sender;
         auction.highestBid = auction.buyNowPrice;
 
+        sellers[auction.seller].balance += auction.buyNowPrice;
+
         ++sellers[auction.seller].totalSold;
         ++bidder.totalBuyNow;
-
+        
         _transferTokens(auction);
-
-        (bool successMsgValue, ) = payable(auction.seller).call{value: auction.buyNowPrice}("");
-        if (!successMsgValue) {
-            revert TransferFailed();
-        }
 
         emit BuyNow(auctionId, msg.sender, auction.buyNowPrice);
     }
@@ -290,6 +288,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         }
 
         auction.status = Status.Claimed;
+
+        sellers[auction.seller].balance += auction.highestBid;
 
         ++sellers[auction.seller].totalSold;
         ++bidders[msg.sender].totalClaimed;
@@ -327,13 +327,11 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         auction.status = Status.Abandoned;
 
+        bidders[auction.highestBidder].balance += auction.highestBid;
         ++bidders[auction.highestBidder].totalAbandoned;
         ++sellers[auction.seller].totalBidderAbandoned;
 
         _resetTokens(auction);
-
-        (bool success, ) = payable(auction.highestBidder).call{ value: auction.highestBid }("");
-        if (!success) revert TransferFailed();
 
         emit Abandoned(auctionId);
     }
@@ -380,13 +378,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         }
 
         auction.status = Status.Unclaimable;
-
+        bidders[auction.highestBidder].balance += auction.highestBid;
         ++sellers[auction.seller].totalUnclaimable;
-
+        
         _resetTokens(auction);
-
-        (bool success, ) = payable(auction.highestBidder).call{ value: auction.highestBid }("");
-        if (!success) revert TransferFailed();
 
         emit Unclaimable(auctionId);
     }
@@ -420,13 +415,14 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
     /**
      *
-     * withdrawBalance - Withdraws bidders balance from the contract
+     * withdrawBalance - Withdraws your complete balance from the contract
      *
      */
     function withdrawBalance() external {
-        uint256 balance = bidders[msg.sender].balance;
+        uint256 balance = bidders[msg.sender].balance + sellers[msg.sender].balance;
 
         bidders[msg.sender].balance = 0;
+        sellers[msg.sender].balance = 0;
 
         (bool success, ) = payable(msg.sender).call{value: balance}("");
         if (!success) revert TransferFailed();

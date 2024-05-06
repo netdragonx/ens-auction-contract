@@ -615,12 +615,4 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             auctionTokens[tokenId] = false;
         }
     }
-
-    receive() external payable {
-        revert InvalidValue();
-    }
-
-    fallback() external payable {
-        revert InvalidValue();
-    }
 }

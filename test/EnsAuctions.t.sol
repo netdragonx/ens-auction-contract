@@ -20,6 +20,7 @@ contract EnsAuctionsTest is Test {
 
     uint256 public tokenCount = 10;
     uint256[] public tokenIds = [0, 1, 2];
+    uint256[] public tokenIds345 = [3, 4, 5];
     uint256[] public tokenIdsB = [10, 11, 12];
 
     uint256[] public tokenIds1 = [0];
@@ -173,6 +174,13 @@ contract EnsAuctionsTest is Test {
         auctions.startAuction{value: fee}(tokenIds, startingPrice, buyNowPrice - 0.001 ether);
     }
 
+    function test_startAuction_RevertIf_BuyNowLessThanStartingPrice() public {
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1);
+        vm.expectRevert(bytes4(keccak256("BuyNowTooLow()")));
+        auctions.startAuction{value: fee}(tokenIds, 1 ether, 0.5 ether);
+    }
+
     function test_startAuction_RevertIf_TokenAlreadyInAuction() public {
         vm.startPrank(user1);
         uint256 fee = auctions.calculateFee(user1);
@@ -316,6 +324,72 @@ contract EnsAuctionsTest is Test {
         assertEq(balance3, 0.02 ether, "balance should be 0.02 ether");
     }
 
+    function test_bid_Success_UsingPartOfABalance() public {
+        vm.deal(user3, 10 ether);
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, 0.01 ether, buyNowPrice);
+
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: 0.5 ether}(1, 0.5 ether);
+        
+        (,,,,, address highestBidder1, uint256 highestBid1,,) = auctions.auctions(1);
+        assertEq(highestBid1, 0.5 ether);
+        assertEq(highestBidder1, user2);
+
+        vm.startPrank(user3);
+        auctions.bid{value: 0.51 ether}(1, 0.51 ether);
+        
+        (,,,,, address highestBidder2, uint256 highestBid2,,) = auctions.auctions(1);
+        assertEq(highestBid2, 0.51 ether);
+        assertEq(highestBidder2, user3);
+
+        (uint16 totalBids,,,,, uint256 balance) = auctions.bidders(user2);
+        assertEq(totalBids, 1, "incorrect total bids");
+        assertEq(balance, 0.5 ether, "incorrect balance");
+
+        // new auction
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds345, 0.01 ether, buyNowPrice);
+
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid(2, 0.24 ether);
+        
+        (,,,,, address highestBidder3, uint256 highestBid3,,) = auctions.auctions(2);
+        assertEq(highestBid3, 0.24 ether);
+        assertEq(highestBidder3, user2);
+        assertEq(user2.balance, 0.5 ether);
+
+        (uint16 totalBids2, uint16 totalOutbids2,,,, uint256 balance2) = auctions.bidders(user2);
+        assertEq(totalBids2, 2, "incorrect total bids");
+        assertEq(totalOutbids2, 1, "incorrect total outbids");
+        assertEq(balance2, 0.26 ether, "incorrect balance");
+
+        vm.startPrank(user3);
+        auctions.bid{value: 0.25 ether}(2, 0.25 ether);
+
+        vm.startPrank(user2);
+        vm.expectRevert(bytes4(keccak256("InvalidValue()")));
+        auctions.bid(2, 0.51 ether);
+    }
+    
+    function test_bid_RevertIf_InvalidStatus() public {
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+
+        vm.startPrank(user2);
+        auctions.buyNow{value: buyNowPrice}(1);
+
+        skip(auctions.auctionDuration() + 1);
+
+        vm.expectRevert(bytes4(keccak256("InvalidStatus()")));
+        auctions.bid{value: startingPrice + 0.1 ether}(1, startingPrice + 0.1 ether);
+    }
+
     function test_bid_RevertIf_AuctionBuyNowPeriod() public {
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
@@ -447,6 +521,31 @@ contract EnsAuctionsTest is Test {
         assertEq(totalUnclaimable, 0, "should have 0 total unclaimable");
         assertEq(totalBidderAbandoned, 0, "should have 0 total bidder abandoned");
         assertEq(sellerBalance, 0.05 ether, "seller balance should be 0.05 ether");
+    }
+
+    function test_buyNow_RevertIf_InvalidStatus() public {
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1);
+        auctions.startAuction{value: fee}(tokenIds, startingPrice, buyNowPrice);
+
+        vm.startPrank(user2);
+        auctions.buyNow{value: buyNowPrice}(1);
+
+        vm.startPrank(user3);
+        vm.expectRevert(bytes4(keccak256("InvalidStatus()")));
+        auctions.buyNow{value: buyNowPrice}(1);
+    }
+
+    function test_buyNow_RevertIf_BuyNowUnavailable() public {
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1);
+        auctions.startAuction{value: fee}(tokenIds, startingPrice, buyNowPrice);
+
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        vm.expectRevert(bytes4(keccak256("BuyNowUnavailable()")));
+        auctions.buyNow{value: buyNowPrice}(1);
     }
 
     //
@@ -588,7 +687,7 @@ contract EnsAuctionsTest is Test {
         assertEq(highestBid, startingPrice, "Highest bid should be startingPrice");
     }
 
-    function test_markAbandoned_RevertIf_AuctionAbandoned() public {
+    function test_markAbandoned_RevertIf_InvalidStatus() public {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
@@ -615,6 +714,40 @@ contract EnsAuctionsTest is Test {
         skip(auctions.buyNowDuration() + auctions.auctionDuration() + auctions.settlementDuration() + 1);
         
         vm.expectRevert(bytes4(keccak256("AuctionHadNoBids()")));
+        auctions.markAbandoned(auctionId);
+    }
+
+    function test_markAbandoned_RevertIf_NotAuthorized() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+
+        skip(auctions.auctionDuration() + auctions.settlementDuration() + 1);
+
+        vm.startPrank(user2);
+        vm.expectRevert(bytes4(keccak256("NotAuthorized()")));
+        auctions.markAbandoned(auctionId);
+    }
+
+    function test_markAbandoned_RevertIf_SettlementPeriodNotExpired() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+
+        skip(auctions.auctionDuration() + 1);
+
+        vm.startPrank(user1);
+        vm.expectRevert(bytes4(keccak256("SettlementPeriodNotExpired()")));
         auctions.markAbandoned(auctionId);
     }
 
@@ -738,6 +871,51 @@ contract EnsAuctionsTest is Test {
         auctions.markUnclaimable(auctionId);
     }
 
+    function test_markUnclaimable_RevertIf_InvalidStatus() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+
+        vm.startPrank(user2);
+        auctions.buyNow{value: buyNowPrice}(auctionId);
+        skip(auctions.auctionDuration() + 1);
+
+        vm.expectRevert(bytes4(keccak256("InvalidStatus()")));
+        auctions.markUnclaimable(auctionId);
+    }
+
+    function test_markUnclaimable_RevertIf_SettlementPeriodEnded() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+        skip(auctions.auctionDuration() + auctions.settlementDuration() + 1);
+
+        vm.expectRevert(bytes4(keccak256("SettlementPeriodEnded()")));
+        auctions.markUnclaimable(auctionId);
+    }
+
+    function test_markUnclaimable_RevertIf_NotHighestBidder() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+        skip(auctions.auctionDuration() + 1);
+
+        vm.startPrank(user3);
+        vm.expectRevert(bytes4(keccak256("NotHighestBidder()")));
+        auctions.markUnclaimable(auctionId);
+    }
+
     //
     // withdrawBalance
     //
@@ -841,10 +1019,18 @@ contract EnsAuctionsTest is Test {
 
     function test_setMinStartingBid_Success() public {
         auctions.setMinStartingBid(0.01 ether);
-
         vm.startPrank(user1);
-
         auctions.startAuction{value: auctions.calculateFee(user1)}(tokenIds, startingPrice, buyNowPrice);
+    }
+
+    function test_setMinBuyNowPrice_Success() public {
+        auctions.setMinBuyNowPrice(5 ether);
+    }
+
+    function test_setMinBuyNowPrice_RevertIf_NotOwner() public {
+        vm.startPrank(vm.addr(69));
+        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
+        auctions.setMinBuyNowPrice(5 ether);
     }
 
     function test_setMinBidIncrement_Success() public {
@@ -922,5 +1108,41 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(vm.addr(69));
         vm.expectRevert(bytes4(keccak256("Unauthorized()")));
         auctions.setFeeRecipient(vm.addr(69));
+    }
+
+    function test_setAntiSnipeDuration_Success() public {
+        auctions.setAntiSnipeDuration(60);
+    }
+
+    function test_setAntiSnipeDuration_RevertIf_NotOwner() public {
+        vm.startPrank(vm.addr(69));
+        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
+        auctions.setAntiSnipeDuration(60);
+    }
+
+    function test_setBaseFee_Success() public {
+        auctions.setBaseFee(0.01 ether);
+
+        vm.startPrank(vm.addr(69));
+        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
+        auctions.setBaseFee(0.01 ether);
+    }
+
+    function test_setLinearFee_Success() public {
+        auctions.setLinearFee(0.01 ether);
+
+        vm.startPrank(vm.addr(69));
+        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
+        auctions.setLinearFee(0.01 ether);
+    }
+
+    function test_setPenaltyFee_Success() public {
+        auctions.setPenaltyFee(0.01 ether);
+    }
+
+    function test_setPenaltyFee_RevertIf_NotOwner() public {
+        vm.startPrank(vm.addr(69));
+        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
+        auctions.setPenaltyFee(0.01 ether);
     }
 }

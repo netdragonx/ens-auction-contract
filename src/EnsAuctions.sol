@@ -34,6 +34,7 @@ pragma solidity ^0.8.25;
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "solady/src/auth/Ownable.sol";
 import "./IEnsAuctions.sol";
+import "./IFeeCalculator.sol";
 
 contract EnsAuctions is IEnsAuctions, Ownable {
     enum Status {
@@ -45,19 +46,19 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     }
 
     struct Bidder {
-        uint16 totalBids;
-        uint16 totalOutbids;
-        uint16 totalClaimed;
-        uint16 totalBuyNow;
-        uint16 totalAbandoned;
+        uint24 totalBids;
+        uint24 totalOutbids;
+        uint24 totalClaimed;
+        uint24 totalBuyNow;
+        uint24 totalAbandoned;
         uint256 balance;
     }
 
     struct Seller {
-        uint16 totalAuctions;
-        uint16 totalSold;
-        uint16 totalUnclaimable;
-        uint16 totalBidderAbandoned;
+        uint24 totalAuctions;
+        uint24 totalSold;
+        uint24 totalUnclaimable;
+        uint24 totalBidderAbandoned;
         uint256 balance;
     }
 
@@ -75,8 +76,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     }
 
     IERC721 public immutable ENS;
+
+    IFeeCalculator public feeCalculator;
+
     address public feeRecipient;
-    uint256 public maxTokens = 10;
     uint256 public nextAuctionId = 1;
     uint256 public minStartingPrice = 0.01 ether;
     uint256 public minBuyNowPrice = 0.05 ether;
@@ -85,18 +88,17 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     uint256 public buyNowDuration = 4 hours;
     uint256 public settlementDuration = 7 days;
     uint256 public antiSnipeDuration = 10 minutes;
-    uint256 public baseFee = 0.05 ether;
-    uint256 public linearFee = 0.01 ether;
-    uint256 public penaltyFee = 0.01 ether;
+    uint8   public maxTokens = 20;
 
     mapping(uint256 => Auction) public auctions;
-    mapping(uint256 => bool) public auctionTokens;
     mapping(address => Seller) public sellers;
     mapping(address => Bidder) public bidders;
+    mapping(uint256 => bool) public auctionTokens;
 
-    constructor(address ensAddress, address feeRecipient_) {
+    constructor(address ensAddress_, address feeCalculator_, address feeRecipient_) {
         _initializeOwner(msg.sender);
-        ENS = IERC721(ensAddress);
+        ENS = IERC721(ensAddress_);
+        feeCalculator = IFeeCalculator(feeCalculator_);
         feeRecipient = feeRecipient_;
     }
 
@@ -113,8 +115,15 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         uint256 buyNowPrice
     ) external payable {
         uint256 auctionFee = calculateFee(msg.sender);
+        uint256 tokenCount = tokenIds.length;
 
-        _validateAuctionTokens(tokenIds);
+        if (tokenCount == 0) {
+            revert InvalidLengthOfTokenIds();
+        }
+
+        if (tokenCount > maxTokens) {
+            revert MaxTokensPerTxReached();
+        }
 
         if (msg.value != auctionFee) {
             revert InvalidFee();
@@ -132,6 +141,18 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             revert BuyNowTooLow();
         }
 
+        for (uint256 i; i < tokenCount; ++i) {
+            uint256 tokenId = tokenIds[i];
+
+            if (auctionTokens[tokenId]) {
+                revert TokenAlreadyInAuction();
+            }
+
+            if (ENS.ownerOf(tokenId) != msg.sender) {
+                revert TokenNotOwned();
+            }
+        }
+
         Auction storage auction = auctions[nextAuctionId];
 
         auction.seller = msg.sender;
@@ -139,12 +160,14 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         auction.buyNowPrice = buyNowPrice;
         auction.endTime = uint64(block.timestamp + auctionDuration);
         auction.buyNowEndTime = uint64(block.timestamp + buyNowDuration);
-        auction.tokenCount = uint8(tokenIds.length);
+        auction.tokenCount = uint8(tokenCount);
 
         mapping(uint256 => uint256) storage tokenMap = auction.tokenIds;
 
-        for (uint256 i; i < tokenIds.length; ++i) {
-            tokenMap[i] = tokenIds[i];
+        for (uint256 i; i < tokenCount; ++i) {
+            uint256 tokenId = tokenIds[i];
+            tokenMap[i] = tokenId;
+            auctionTokens[tokenId] = true;
         }
 
         unchecked {
@@ -274,13 +297,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      */
     function claim(uint256 auctionId) external {
         Auction storage auction = auctions[auctionId];
+        Seller storage seller = sellers[auction.seller];
 
         if (auction.status != Status.Active) {
             revert InvalidStatus();
-        }
-
-        if (msg.sender != auction.highestBidder) {
-            revert NotHighestBidder();
         }
 
         if (block.timestamp < auction.endTime) {
@@ -289,10 +309,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         auction.status = Status.Claimed;
 
-        sellers[auction.seller].balance += auction.highestBid;
+        seller.balance += auction.highestBid;
+        ++seller.totalSold;
 
-        ++sellers[auction.seller].totalSold;
-        ++bidders[msg.sender].totalClaimed;
+        ++bidders[auction.highestBidder].totalClaimed;
 
         _transferTokens(auction);
 
@@ -301,7 +321,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
     /**
      *
-     * abandon - Seller can mark unclaimed auctions as abandoned after the settlement period
+     * abandon - Mark unclaimed auctions as abandoned after the settlement period
      *
      * @param auctionId - The id of the auction to mark abandoned
      *
@@ -392,10 +412,6 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      *
      * @param sellerAddress - Address of seller
      *
-     * baseFee: minimal fee for all auctions.
-     * linearFee: fee that increases linearly for unsold auctions (0 if none).
-     * penaltyFee: fee charged for each auction a buyer marked unclaimable
-     *
      * Dynamic fees are designed to encourage sellers to:
      *
      *  a) use Starting Price / Buy Now prices that reflect market conditions
@@ -404,13 +420,15 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      *  d) make sure all auctions remain claimable
      * 
      */
-
     function calculateFee(address sellerAddress) public view returns (uint256) {
         Seller storage seller = sellers[sellerAddress];
 
-        return (baseFee +
-            linearFee * (seller.totalAuctions - seller.totalSold - seller.totalBidderAbandoned) +
-            (penaltyFee * seller.totalUnclaimable));
+        return feeCalculator.calculateFee(
+            seller.totalAuctions,
+            seller.totalSold,
+            seller.totalUnclaimable,
+            seller.totalBidderAbandoned
+        );
     }
 
     /**
@@ -456,12 +474,17 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      *
      */
 
+    function setFeeCalculator(address feeCalculator_) external onlyOwner {
+        feeCalculator = IFeeCalculator(feeCalculator_);
+        emit FeeCalculatorUpdated(feeCalculator_);
+    }
+
     function setFeeRecipient(address feeRecipient_) external onlyOwner {
         feeRecipient = feeRecipient_;
         emit FeeRecipientUpdated(feeRecipient_);
     }
 
-    function setMaxTokens(uint256 maxTokens_) external onlyOwner {
+    function setMaxTokens(uint8 maxTokens_) external onlyOwner {
         maxTokens = maxTokens_;
         emit MaxTokensUpdated(maxTokens_);
     }
@@ -501,56 +524,11 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         emit AntiSnipeDurationUpdated(antiSnipeDuration_);
     }
 
-    function setBaseFee(uint256 baseFee_) external onlyOwner {
-        baseFee = baseFee_;
-        emit BaseFeeUpdated(baseFee_);
-    }
-
-    function setLinearFee(uint256 linearFee_) external onlyOwner {
-        linearFee = linearFee_;
-        emit LinearFeeUpdated(linearFee_);
-    }
-
-    function setPenaltyFee(uint256 penaltyFee_) external onlyOwner {
-        penaltyFee = penaltyFee_;
-        emit PenaltyFeeUpdated(penaltyFee_);
-    }
-
     /**
      *
      * Internal Functions
      *
      */
-
-    /**
-     * _validateAuctionTokens - Validates that the tokens are owned by the sender and not already in an auction
-     *
-     * @param tokenIds - The token ids to validate
-     *
-     */
-    function _validateAuctionTokens(uint256[] calldata tokenIds) internal {
-        if (tokenIds.length == 0) {
-            revert InvalidLengthOfTokenIds();
-        }
-
-        if (tokenIds.length > maxTokens) {
-            revert MaxTokensPerTxReached();
-        }
-
-        for (uint256 i; i < tokenIds.length; ++i) {
-            uint256 tokenId = tokenIds[i];
-
-            if (auctionTokens[tokenId]) {
-                revert TokenAlreadyInAuction();
-            }
-
-            auctionTokens[tokenId] = true;
-
-            if (ENS.ownerOf(tokenId) != msg.sender) {
-                revert TokenNotOwned();
-            }
-        }
-    }
 
     /**
      * processPayment - Process payment for a bid. If a bidder has a balance, use that first.
@@ -561,8 +539,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     function _processPayment(uint256 paymentDue) internal {
         Bidder storage bidder = bidders[msg.sender];
 
-        uint256 paymentFromBalance = bidder.balance;
-        uint256 paymentFromMsgValue = msg.value;
+        uint256 paymentFromBalance;
+        uint256 paymentFromMsgValue;
 
         if (bidder.balance >= paymentDue) {
             paymentFromBalance = paymentDue;
@@ -616,3 +594,4 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         }
     }
 }
+

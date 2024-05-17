@@ -4,9 +4,10 @@ pragma solidity ^0.8.25;
 import {Script, console2} from "forge-std/Script.sol";
 import {EnsAuctions} from "../src/EnsAuctions.sol";
 import {Mock721} from "../test/lib/Mock721.sol";
+import {DynamicFeeCalculator} from "../src/DynamicFeeCalculator.sol";
+import {IFeeCalculator} from "../src/IFeeCalculator.sol";
 
 contract DeployAnvilScript is Script {
-
     EnsAuctions ensAuctions;
     Mock721 mockENS;
 
@@ -18,7 +19,13 @@ contract DeployAnvilScript is Script {
         mockENS = new Mock721();
         mockENS.mint(user, 20);
 
-        ensAuctions = new EnsAuctions(address(this), address(mockENS));
+        IFeeCalculator feeCalculator = new DynamicFeeCalculator();
+
+        ensAuctions = new EnsAuctions(
+            address(this),
+            address(feeCalculator),
+            address(mockENS)
+        );
 
         // uint256[] memory tokenIds = new uint256[](1);
         // tokenIds[0] = 0;

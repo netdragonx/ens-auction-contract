@@ -12,7 +12,7 @@ interface IEnsAuctions {
     function withdrawBalance() external;
     
     function getAuctionTokens(uint256 auctionId) external view returns (uint256[] memory);
-    function setMaxTokens(uint256 maxTokens_) external;
+    function setMaxTokens(uint8 maxTokens_) external;
     function setMinBuyNowPrice(uint256 minBuyNowPrice_) external;
     function setMinStartingBid(uint256 minStartingPrice_) external;
     function setMinBidIncrement(uint256 minBidIncrement_) external;
@@ -20,9 +20,6 @@ interface IEnsAuctions {
     function setBuyNowDuration(uint256 buyNowDuration_) external;
     function setSettlementDuration(uint256 settlementDuration_) external;
     function setAntiSnipeDuration(uint256 antiSnipeDuration_) external;
-    function setBaseFee(uint256 baseFee_) external;
-    function setLinearFee(uint256 linearFee_) external;
-    function setPenaltyFee(uint256 penaltyFee_) external;
 
     event Started(
         uint256 auctionId,
@@ -42,10 +39,8 @@ interface IEnsAuctions {
     event Withdrawn(address indexed recipient, uint256 amount);
 
     // Setter events
+    event FeeCalculatorUpdated(address feeCalculator);
     event FeeRecipientUpdated(address feeRecipient);
-    event BaseFeeUpdated(uint256 baseFee);
-    event LinearFeeUpdated(uint256 linearFee);
-    event PenaltyFeeUpdated(uint256 penaltyFee);
     event MinStartingBidUpdated(uint256 minStartingBid);
     event MinBuyNowPriceUpdated(uint256 minBuyNowPrice);
     event MinBidIncrementUpdated(uint256 minBidIncrement);

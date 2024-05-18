@@ -2,9 +2,14 @@
 pragma solidity ^0.8.25;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+import "../../src/IBaseRegistrar.sol";
 
-contract Mock721 is ERC721Enumerable {
-    constructor() ERC721("Mock721", "MOCK721") {}
+contract MockRegistrar is ERC721Enumerable, IBaseRegistrar {
+    constructor() ERC721("MockRegistrar", "MOCKREG") {}
+
+    function nameExpires(uint256 id) external view returns (uint256) {
+        // not implemented
+    }
 
     function mint(address recipient, uint256 count) external payable {
         require(count > 0, "Mint more than 0");

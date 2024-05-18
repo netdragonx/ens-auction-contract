@@ -135,26 +135,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         if (buyNowPrice < minBuyNowPrice || buyNowPrice <= startingPrice) revert BuyNowTooLow();
         if (tokenCount == 0 || tokenCount != wrapped.length) revert InvalidLengthOfTokenIds();
 
-        for (uint256 i; i < tokenCount; ++i) {
-            uint256 tokenId = tokenIds[i];
+        _validateTokens(tokenIds, wrapped);
 
-            if (tokenOnAuction[tokenId]) {
-                revert TokenAlreadyInAuction();
-            }
-
-            // we do an effect early to prevent dupes
-            tokenOnAuction[tokenId] = true;
-
-            if (wrapped[i]) {
-                if (ensNameWrapper.ownerOf(tokenId) != msg.sender) revert TokenNotOwned();
-                (, uint32 fuses, ) = ensNameWrapper.getData(tokenId);
-                if (fuses & CANNOT_TRANSFER != 0) revert TokenNotTransferrable();
-            } else {
-                if (ensRegistrar.ownerOf(tokenId) != msg.sender) revert TokenNotOwned();
-            }
-        }
-
-        uint64 endTime; 
+        uint64 endTime;
         uint64 buyNowEndTime;
 
         unchecked {
@@ -171,8 +154,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         auction.endTime = endTime;
 
         for (uint256 i; i < tokenCount; ++i) {
-            uint256 tokenId = tokenIds[i];
-            auction.tokens[i] = Token(tokenId, wrapped[i]);
+            auction.tokens[i] = Token(tokenIds[i], wrapped[i]);
         }
 
         unchecked {
@@ -394,56 +376,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             revert NotHighestBidder();
         }
 
-        bool isClaimable = true;
-        bool hasWrapped = false;
-        bool hasUnwrapped = false;
-
-        for (uint256 i; i < auction.tokenCount; ++i) {
-            Token memory token = auction.tokens[i];
-
-            if (token.isWrapped) {
-                if (!hasWrapped) {
-                    hasWrapped = true;
-                    
-                    if (!ensNameWrapper.isApprovedForAll(auction.seller, address(this))) {
-                        isClaimable = false;
-                        break;
-                    }
-                }
-
-                if (ensNameWrapper.ownerOf(token.tokenId) != auction.seller) {
-                    isClaimable = false;
-                    break;
-                }
-
-                (, uint32 fuses, ) = ensNameWrapper.getData(token.tokenId);
-
-                if (fuses & CANNOT_TRANSFER != 0) {
-                    isClaimable = false;
-                    break;
-                }
-            } else {
-                if (!hasUnwrapped) {
-                    hasUnwrapped = true;
-
-                    if (!ensRegistrar.isApprovedForAll(auction.seller, address(this))) {
-                        isClaimable = false;
-                        break;
-                    }
-                }
-
-                if (ensRegistrar.ownerOf(token.tokenId) != auction.seller) {
-                    isClaimable = false;
-                    break;
-                }
-            }
-
-            if (!isClaimable) {
-                break;
-            }
-        }
-
-        if (isClaimable) {
+        if (_isClaimable(auction)) {
             revert AuctionIsClaimable();
         }
 
@@ -580,11 +513,99 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         emit AntiSnipeDurationUpdated(antiSnipeDuration_);
     }
 
+
     /**
      *
      * Internal Functions
      *
      */
+
+
+    /**
+     * _validateTokens - Validates tokens before an auction starts
+     *
+     * @param tokenIds - The token ids to auction
+     * @param wrapped - Whether the tokens are wrapped
+     *
+     */
+    function _validateTokens(uint256[] calldata tokenIds, bool[] calldata wrapped) internal {
+        for (uint256 i; i < tokenIds.length; ++i) {
+            uint256 tokenId = tokenIds[i];
+
+            if (tokenOnAuction[tokenId]) {
+                revert TokenAlreadyInAuction();
+            }
+
+            tokenOnAuction[tokenId] = true;
+
+            if (wrapped[i]) {
+                if (ensNameWrapper.ownerOf(tokenId) != msg.sender) revert TokenNotOwned();
+                (, uint32 fuses, ) = ensNameWrapper.getData(tokenId);
+                if (fuses & CANNOT_TRANSFER != 0) revert TokenNotTransferrable();
+            } else {
+                if (ensRegistrar.ownerOf(tokenId) != msg.sender) revert TokenNotOwned();
+            }
+        }
+    }
+
+    /**
+     * _isClaimable - Checks if an auction is claimable
+     *
+     * @param auction - The auction to check
+     *
+     */
+    function _isClaimable(Auction storage auction) internal view returns (bool) {
+        bool isClaimable = true;
+        bool hasWrapped = false;
+        bool hasUnwrapped = false;
+
+        for (uint256 i; i < auction.tokenCount; ++i) {
+            Token memory token = auction.tokens[i];
+
+            if (token.isWrapped) {
+                if (!hasWrapped) {
+                    hasWrapped = true;
+                    
+                    if (!ensNameWrapper.isApprovedForAll(auction.seller, address(this))) {
+                        isClaimable = false;
+                        break;
+                    }
+                }
+
+                if (ensNameWrapper.ownerOf(token.tokenId) != auction.seller) {
+                    isClaimable = false;
+                    break;
+                }
+
+                (, uint32 fuses, ) = ensNameWrapper.getData(token.tokenId);
+
+                if (fuses & CANNOT_TRANSFER != 0) {
+                    isClaimable = false;
+                    break;
+                }
+            } else {
+                if (!hasUnwrapped) {
+                    hasUnwrapped = true;
+
+                    if (!ensRegistrar.isApprovedForAll(auction.seller, address(this))) {
+                        isClaimable = false;
+                        break;
+                    }
+                }
+
+                if (ensRegistrar.ownerOf(token.tokenId) != auction.seller) {
+                    isClaimable = false;
+                    break;
+                }
+            }
+
+            if (!isClaimable) {
+                break;
+            }
+        }
+
+        return isClaimable;
+    }
 
     /**
      * processPayment - Process payment for a bid. If a bidder has a balance, use that first.
@@ -654,4 +675,3 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         }
     }
 }
-

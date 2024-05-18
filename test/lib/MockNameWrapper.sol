@@ -32,6 +32,7 @@ contract MockNameWrapper is ERC1155, INameWrapper {
 
         for (uint256 i; i < count;) {
             _mint(recipient, nextTokenId + i, 1, data);
+            _owners[nextTokenId + i] = recipient;
 
             unchecked {
                 ++i;
@@ -39,5 +40,17 @@ contract MockNameWrapper is ERC1155, INameWrapper {
         }
 
         _nextTokenId = nextTokenId + count;
+    }
+
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 id,
+        uint256 amount,
+        bytes memory data
+    ) public override(ERC1155, IERC1155) {
+        require(_owners[id] == from, "Not owner");
+        super.safeTransferFrom(from, to, id, amount, data);
+        _owners[id] = to;
     }
 }

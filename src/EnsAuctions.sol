@@ -137,13 +137,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         _validateTokens(tokenIds, wrapped);
 
-        uint64 endTime;
-        uint64 buyNowEndTime;
-
-        unchecked {
-            endTime = uint64(block.timestamp + auctionDuration);
-            buyNowEndTime = uint64(block.timestamp + buyNowDuration);
-        }
+        uint64 endTime = uint64(block.timestamp + auctionDuration);
+        uint64 buyNowEndTime = uint64(block.timestamp + buyNowDuration);
 
         Auction storage auction = auctions[nextAuctionId];
         auction.seller = msg.sender;
@@ -157,10 +152,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             auction.tokens[i] = Token(tokenIds[i], wrapped[i]);
         }
 
-        unchecked {
-            ++nextAuctionId;
-            ++sellers[msg.sender].totalAuctions;
-        }
+        ++nextAuctionId;
+        ++sellers[msg.sender].totalAuctions;
 
         (bool success, ) = payable(feeRecipient).call{value: msg.value}("");
         if (!success) revert TransferFailed();
@@ -204,10 +197,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             revert SellerCannotBid();
         }
 
-        unchecked {
-            if (block.timestamp >= auction.endTime - antiSnipeDuration) {
-                auction.endTime += uint64(antiSnipeDuration);
-            }
+        if (block.timestamp >= auction.endTime - antiSnipeDuration) {
+            auction.endTime += uint64(antiSnipeDuration);
         }
         
         uint256 minimumBid;
@@ -215,9 +206,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         if (auction.highestBid == 0) {
             minimumBid = auction.startingPrice;
         } else {
-            unchecked {
-                minimumBid = auction.highestBid + minBidIncrement;
-            }
+            minimumBid = auction.highestBid + minBidIncrement;
         }
 
         if (bidAmount < minimumBid) {
@@ -226,9 +215,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         _processPayment(bidAmount);
 
-        unchecked {
-            ++bidder.totalBids;
-        }
+        ++bidder.totalBids;
 
         address prevHighestBidder = auction.highestBidder;
         uint256 prevHighestBid = auction.highestBid;
@@ -238,10 +225,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         if (prevHighestBidder != address(0)) {
             Bidder storage prevBidder = bidders[prevHighestBidder];
-            unchecked {
-                prevBidder.balance += prevHighestBid;
-                ++prevBidder.totalOutbids;
-            }
+            prevBidder.balance += prevHighestBid;
+            ++prevBidder.totalOutbids;
         }
 
         emit Bid(auctionId, msg.sender, bidAmount);
@@ -272,11 +257,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         auction.highestBidder = msg.sender;
         auction.highestBid = auction.buyNowPrice;
 
-        unchecked {
-            sellers[auction.seller].balance += auction.buyNowPrice;
-            ++sellers[auction.seller].totalSold;
-            ++bidder.totalBuyNow;
-        }
+        sellers[auction.seller].balance += auction.buyNowPrice;
+        ++sellers[auction.seller].totalSold;
+        ++bidder.totalBuyNow;
 
         _transferTokens(auction);
 
@@ -304,11 +287,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         auction.status = Status.Claimed;
 
-        unchecked {
-            seller.balance += auction.highestBid;
-            ++seller.totalSold;
-            ++bidders[auction.highestBidder].totalClaimed;
-        }
+        seller.balance += auction.highestBid;
+        ++seller.totalSold;
+        ++bidders[auction.highestBidder].totalClaimed;
 
         _transferTokens(auction);
 
@@ -343,11 +324,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         auction.status = Status.Abandoned;
 
-        unchecked {
-            bidders[auction.highestBidder].balance += auction.highestBid;
-            ++bidders[auction.highestBidder].totalAbandoned;
-            ++sellers[auction.seller].totalBidderAbandoned;
-        }
+        bidders[auction.highestBidder].balance += auction.highestBid;
+        ++bidders[auction.highestBidder].totalAbandoned;
+        ++sellers[auction.seller].totalBidderAbandoned;
 
         _resetTokens(auction);
 
@@ -382,10 +361,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         auction.status = Status.Unclaimable;
 
-        unchecked {
-            bidders[auction.highestBidder].balance += auction.highestBid;
-            ++sellers[auction.seller].totalUnclaimable;
-        }
+        bidders[auction.highestBidder].balance += auction.highestBid;
+        ++sellers[auction.seller].totalUnclaimable;
         
         _resetTokens(auction);
 
@@ -469,9 +446,6 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         feeRecipient = feeRecipient_;
         emit FeeRecipientUpdated(feeRecipient_);
     }
-
-
-
 
     function setMaxTokens(uint256 maxTokens_) external onlyOwner {
         maxTokens = maxTokens_;
@@ -624,18 +598,14 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             paymentFromMsgValue = 0;
         } else {
             paymentFromBalance = bidder.balance;
-            unchecked {
-                paymentFromMsgValue = paymentDue - bidder.balance;
-            }
+            paymentFromMsgValue = paymentDue - bidder.balance;
         }
 
         if (msg.value != paymentFromMsgValue) {
             revert InvalidValue();
         }
 
-        unchecked {
-            bidder.balance -= paymentFromBalance;
-        }
+        bidder.balance -= paymentFromBalance;
     }
 
     /**

@@ -68,12 +68,18 @@ contract EnsAuctionsTest is Test {
 
         mockRegistrar.mint(user1, tokenCount);
         mockRegistrar.mint(user2, tokenCount);
+        mockNameWrapper.mint(user1, tokenCount);
+        mockNameWrapper.mint(user2, tokenCount);
 
-        vm.prank(user1);
+        vm.startPrank(user1);
         mockRegistrar.setApprovalForAll(address(auctions), true);
+        mockNameWrapper.setApprovalForAll(address(auctions), true);
 
-        vm.prank(user2);
+        vm.startPrank(user2);
         mockRegistrar.setApprovalForAll(address(auctions), true);
+        mockNameWrapper.setApprovalForAll(address(auctions), true);
+        
+        vm.stopPrank();
     }
 
     //
@@ -169,6 +175,27 @@ contract EnsAuctionsTest is Test {
         assertEq(auctions.nextAuctionId(), nextAuctionId + 2, "nextAuctionId should be incremented");
     }
 
+    function test_startAuction_WithWrappedNames() public {
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        
+        (
+            , 
+            ,
+            , 
+            address _seller, 
+            ,
+            ,
+            ,
+            ,
+            uint256 _tokenCount
+        ) = auctions.auctions(1);
+
+        assertEq(_seller, user1, "Seller should be user1");
+        assertEq(_tokenCount, tokenIds.length, "Token count should match the number of tokens auctioned");
+    }
+
     function test_startAuction_RevertIf_InvalidFee() public {
         vm.startPrank(user1);
         uint256 fee = auctions.calculateFee(user1);
@@ -257,6 +284,26 @@ contract EnsAuctionsTest is Test {
         assertEq(fee1, 0.05 ether, "base fee is 0.05 ether");
         assertEq(fee2, 0.06 ether, "fee w/ linear fee is 0.06 ether");
         assertEq(fee3, 0.07 ether, "fee w/ linear fee * 2 is 0.07 ether");
+    }
+
+    function test_startAuction_RevertIf_WrappedNameNotOwned() public {
+        uint256[] memory notOwnedTokenIds = new uint256[](1);
+        notOwnedTokenIds[0] = tokenCount + 1;
+
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1);
+        vm.expectRevert(bytes4(keccak256("TokenNotOwned()")));
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, notOwnedTokenIds, wrapped1);
+    }
+
+    function test_startAuction_RevertIf_WrappedNameAlreadyInAuction() public {
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped);
+
+        fee = auctions.calculateFee(user1);
+        vm.expectRevert(bytes4(keccak256("TokenAlreadyInAuction()")));
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped);
     }
 
     //
@@ -405,6 +452,21 @@ contract EnsAuctionsTest is Test {
         auctions.bid(2, 0.51 ether);
     }
     
+    function test_bid_WithWrappedNames() public {
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(1, startingPrice);
+
+        (,,,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(1);
+
+        assertEq(highestBidder, user2, "Highest bidder incorrect");
+        assertEq(highestBid, startingPrice, "Highest bid incorrect");
+    }
+
     function test_bid_RevertIf_InvalidStatus() public {
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
@@ -484,7 +546,7 @@ contract EnsAuctionsTest is Test {
         uint256 minIncrement = auctions.minBidIncrement();
         bidA = bound(bidA, 0.05 ether, 100 ether);
         bidB = bound(bidB, bidA + minIncrement, type(uint256).max);
-        
+
         vm.assume(user2.balance >= bidA);
         vm.assume(user3.balance >= bidB);
 
@@ -618,6 +680,26 @@ contract EnsAuctionsTest is Test {
         assertEq(totalUnclaimable, 0, "should have 0 total unclaimable");
         assertEq(totalBidderAbandoned, 0, "should have 0 total bidder abandoned");
         assertEq(sellerBalance, startingPrice, "seller balance should be 0.05 ether");
+    }
+
+    function test_claim_WithWrappedNames() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
+
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+
+        skip(auctions.auctionDuration() + 1);
+        auctions.claim(auctionId);
+
+        assertEq(user2.balance, 1 ether - startingPrice, "user2 should have 0.94 ether");
+        assertEq(mockNameWrapper.ownerOf(tokenIds[0]), user2, "Should own wrapped token 0");
+        assertEq(mockNameWrapper.ownerOf(tokenIds[1]), user2, "Should own wrapped token 1");
+        assertEq(mockNameWrapper.ownerOf(tokenIds[2]), user2, "Should own wrapped token 2");
     }
 
     function test_claim_RevertIf_BeforeAuctionEnded() public {

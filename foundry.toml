@@ -3,6 +3,6 @@ src = "src"
 out = "out"
 libs = ["lib"]
 via_ir = true
-evm_version = 'paris'
+evm_version = 'shanghai'
 gas_reports = ["*"]
 solc = "0.8.25"

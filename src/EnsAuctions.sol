@@ -572,10 +572,6 @@ contract EnsAuctions is IEnsAuctions, Ownable {
                     break;
                 }
             }
-
-            if (!isClaimable) {
-                break;
-            }
         }
 
         return isClaimable;

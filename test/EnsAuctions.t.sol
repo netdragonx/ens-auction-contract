@@ -78,7 +78,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user2);
         mockRegistrar.setApprovalForAll(address(auctions), true);
         mockNameWrapper.setApprovalForAll(address(auctions), true);
-        
+
         vm.stopPrank();
     }
 
@@ -303,6 +303,15 @@ contract EnsAuctionsTest is Test {
 
         fee = auctions.calculateFee(user1);
         vm.expectRevert(bytes4(keccak256("TokenAlreadyInAuction()")));
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped);
+    }
+
+    function test_startAuction_RevertIf_WrappedNameNotTransferrable() public {
+        mockNameWrapper.setFuses(CANNOT_TRANSFER);
+
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1);
+        vm.expectRevert(bytes4(keccak256("TokenNotTransferrable()")));
         auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped);
     }
 
@@ -544,11 +553,15 @@ contract EnsAuctionsTest is Test {
 
     function testFuzz_bid_Success(uint256 bidA, uint256 bidB) public {
         uint256 minIncrement = auctions.minBidIncrement();
-        bidA = bound(bidA, 0.05 ether, 100 ether);
-        bidB = bound(bidB, bidA + minIncrement, type(uint256).max);
 
-        vm.assume(user2.balance >= bidA);
-        vm.assume(user3.balance >= bidB);
+        bidA = bound(bidA, 0.05 ether, 100 ether);
+        bidB = bound(bidB, bidA + minIncrement, 100000 ether);
+
+        emit log_named_uint("bidA", bidA);
+        emit log_named_uint("bidB", bidB);
+
+        vm.deal(user2, bidA);
+        vm.deal(user3, bidB);
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
@@ -682,7 +695,7 @@ contract EnsAuctionsTest is Test {
         assertEq(sellerBalance, startingPrice, "seller balance should be 0.05 ether");
     }
 
-    function test_claim_WithWrappedNames() public {
+    function test_claim_Success_WithWrappedNames() public {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
@@ -874,6 +887,32 @@ contract EnsAuctionsTest is Test {
         assertEq(highestBid, startingPrice, "Highest bid should be 0.06 ether");
     }
 
+    function test_markUnclaimable_Success_SellerMovesTokens_Wrapped() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+
+        // user1 moves a token mid auction
+        vm.startPrank(user1);
+        mockNameWrapper.safeTransferFrom(user1, user3, tokenIds[0], 1, "");
+
+        skip(auctions.auctionDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.markUnclaimable(auctionId);
+
+        (,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
+
+        assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
+        assertEq(highestBidder, user2, "Highest bidder should be user2");
+        assertEq(highestBid, startingPrice, "Highest bid should be 0.06 ether");
+    }
+
     function test_markUnclaimable_Success_SellerRemovesApprovalForAll() public {
         uint256 auctionId = auctions.nextAuctionId();
 
@@ -887,6 +926,32 @@ contract EnsAuctionsTest is Test {
         // user1 moves a token mid auction
         vm.startPrank(user1);
         mockRegistrar.setApprovalForAll(address(auctions), false);
+        
+        skip(auctions.auctionDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.markUnclaimable(auctionId);
+
+        (,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
+
+        assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
+        assertEq(highestBidder, user2, "Highest bidder should be user2");
+        assertEq(highestBid, startingPrice, "Highest bid should be 0.06 ether");
+    }
+
+    function test_markUnclaimable_Success_SellerRemovesApprovalForAll_Wrapped() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+
+        // user1 moves a token mid auction
+        vm.startPrank(user1);
+        mockNameWrapper.setApprovalForAll(address(auctions), false);
         
         skip(auctions.auctionDuration() + 1);
 
@@ -930,6 +995,32 @@ contract EnsAuctionsTest is Test {
         assertEq(highestBid, startingPrice, "Highest bid should be 0.06 ether");
     }
 
+    function test_markUnclaimable_Success_SellerBurnsFusesOnWrappedName() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+
+        // burn transfer fuse
+        vm.startPrank(user1);
+        mockNameWrapper.setFuses(CANNOT_TRANSFER);
+
+        skip(auctions.auctionDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.markUnclaimable(auctionId);
+
+        (,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
+
+        assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
+        assertEq(highestBidder, user2, "Highest bidder should be user2");
+        assertEq(highestBid, startingPrice, "Highest bid should be 0.06 ether");
+    }
+
     function test_markUnclaimable_RevertIf_AuctionIsClaimable() public {
         uint256 auctionId = auctions.nextAuctionId();
 
@@ -945,31 +1036,40 @@ contract EnsAuctionsTest is Test {
         auctions.markUnclaimable(auctionId);
     }
 
-    // function test_markUnclaimable_RevertIf_AuctionIsClaimableViaSoloApprovals() public {
-    //     uint256 auctionId = auctions.nextAuctionId();
+    function test_markUnclaimable_RevertIf_AuctionIsClaimable_Wrapped() public {
+        uint256 auctionId = auctions.nextAuctionId();
 
-    //     vm.startPrank(user1);
-    //     mockRegistrar.setApprovalForAll(address(auctions), false);
-    //     mockRegistrar.approve(address(auctions), tokenIds[0]);
-    //     mockRegistrar.approve(address(auctions), tokenIds[1]);
-    //     mockRegistrar.approve(address(auctions), tokenIds[2]);
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        skip(auctions.buyNowDuration() + 1);
 
-    //     auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-    //     skip(auctions.buyNowDuration() + 1);
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+        skip(auctions.auctionDuration() + 1);
 
-    //     vm.startPrank(user2);
-    //     auctions.bid{value: startingPrice}(auctionId, startingPrice);
-    //     skip(auctions.auctionDuration() + 1);
-
-    //     vm.expectRevert(bytes4(keccak256("AuctionIsClaimable()")));
-    //     auctions.markUnclaimable(auctionId);
-    // }
+        vm.expectRevert(bytes4(keccak256("AuctionIsClaimable()")));
+        auctions.markUnclaimable(auctionId);
+    }
 
     function test_markUnclaimable_RevertIf_InvalidStatus() public {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+
+        vm.startPrank(user2);
+        auctions.buyNow{value: buyNowPrice}(auctionId);
+        skip(auctions.auctionDuration() + 1);
+
+        vm.expectRevert(bytes4(keccak256("InvalidStatus()")));
+        auctions.markUnclaimable(auctionId);
+    }
+
+    function test_markUnclaimable_RevertIf_InvalidStatus_Wrapped() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
 
         vm.startPrank(user2);
         auctions.buyNow{value: buyNowPrice}(auctionId);
@@ -994,11 +1094,42 @@ contract EnsAuctionsTest is Test {
         auctions.markUnclaimable(auctionId);
     }
 
+    function test_markUnclaimable_RevertIf_SettlementPeriodEnded_Wrapped() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+        skip(auctions.auctionDuration() + auctions.settlementDuration() + 1);
+
+        vm.expectRevert(bytes4(keccak256("SettlementPeriodEnded()")));
+        auctions.markUnclaimable(auctionId);
+    }
+
     function test_markUnclaimable_RevertIf_NotHighestBidder() public {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        skip(auctions.buyNowDuration() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(auctionId, startingPrice);
+        skip(auctions.auctionDuration() + 1);
+
+        vm.startPrank(user3);
+        vm.expectRevert(bytes4(keccak256("NotHighestBidder()")));
+        auctions.markUnclaimable(auctionId);
+    }
+
+    function test_markUnclaimable_RevertIf_NotHighestBidder_Wrapped() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
         skip(auctions.buyNowDuration() + 1);
 
         vm.startPrank(user2);
@@ -1244,5 +1375,15 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(vm.addr(69));
         vm.expectRevert(bytes4(keccak256("Unauthorized()")));
         feeCalculator.setPenaltyFee(0.01 ether);
+    }
+
+    function test_setFeeCalculator_Success() public {
+        auctions.setFeeCalculator(address(feeCalculator));
+    }
+
+    function test_setFeeCalculator_RevertIf_NotOwner() public {
+        vm.startPrank(vm.addr(69));
+        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
+        auctions.setFeeCalculator(address(feeCalculator));
     }
 }

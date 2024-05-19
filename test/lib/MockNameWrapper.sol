@@ -7,6 +7,7 @@ import "../../src/INameWrapper.sol";
 contract MockNameWrapper is ERC1155, INameWrapper {
     mapping(uint256 => address) private _owners;
     uint256 private _nextTokenId;
+    uint32 private fuses;
 
     constructor() ERC1155("") {}
 
@@ -18,10 +19,13 @@ contract MockNameWrapper is ERC1155, INameWrapper {
         return _owners[tokenId];
     }
 
-    function getData(
-        uint256
-    ) public pure override returns (address, uint32, uint64) {
-        return (address(0), 0, 0);
+    function getData(uint256) public view override returns (address, uint32, uint64) {
+        return (address(0), fuses, 0);
+    }
+
+    function setFuses(uint32 fuses_) external returns (uint32 newFuses) {
+        fuses = fuses_;
+        return fuses;
     }
 
     function mint(address recipient, uint256 count) external payable {

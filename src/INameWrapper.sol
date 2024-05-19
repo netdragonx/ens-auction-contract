@@ -9,7 +9,5 @@ uint32 constant CANNOT_APPROVE = 64;
 interface INameWrapper is IERC1155 {
     function ownerOf(uint256 id) external view returns (address owner);
     function getApproved(uint256 tokenId) external view returns (address);
-    function getData(
-        uint256 id
-    ) external view returns (address, uint32, uint64);
+    function getData(uint256 id) external view returns (address, uint32, uint64);
 }

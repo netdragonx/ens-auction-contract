@@ -27,6 +27,10 @@ contract DeployScript is Script {
         );
 
         console2.log("EnsAuctions contract: ", address(ensAuctions));
+        console2.log("FeeCalculator contract: ", address(feeCalculator));
+        console2.log("FeeRecipient: ", feeRecipient);
+        console2.log("Registrar: ", registrar);
+        console2.log("NameWrapper: ", nameWrapper);
 
         vm.stopBroadcast();
     }

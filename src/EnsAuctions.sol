@@ -519,6 +519,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             } else {
                 if (ensRegistrar.ownerOf(tokenId) != msg.sender) revert TokenNotOwned();
             }
+
+            if (block.timestamp > ensRegistrar.nameExpires(tokenId)) {
+                revert TokenExpired();
+            }
         }
     }
 

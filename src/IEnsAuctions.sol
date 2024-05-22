@@ -75,6 +75,7 @@ interface IEnsAuctions {
     error SettlementPeriodEnded();
     error StartPriceTooLow();
     error TokenAlreadyInAuction();
+    error TokenExpired();
     error TokenNotOwned();
     error TokenNotTransferrable();
     error TransferFailed();

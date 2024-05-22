@@ -315,6 +315,16 @@ contract EnsAuctionsTest is Test {
         auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped);
     }
 
+    function test_startAuction_RevertIf_TokenExpired() public {
+        skip(1 days);
+        mockRegistrar.expireToken(1 days);
+
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1);
+        vm.expectRevert(bytes4(keccak256("TokenExpired()")));
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+    }
+
     //
     // bid()
     //

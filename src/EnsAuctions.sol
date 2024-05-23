@@ -465,14 +465,14 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             tokenOnAuction[tokenId] = true;
 
             if (wrapped[i]) {
-                if (ensNameWrapper.ownerOf(tokenId) != msg.sender) revert TokenNotOwned();
-                (, uint32 fuses, ) = ensNameWrapper.getData(tokenId);
+                (address owner, uint32 fuses, uint64 expiry) = ensNameWrapper.getData(tokenId);
+                if (owner != msg.sender) revert TokenNotOwned();
+                if (expiry < block.timestamp) revert TokenExpired();
                 if (fuses & CANNOT_TRANSFER != 0) revert TokenNotTransferrable();
             } else {
                 if (ensRegistrar.ownerOf(tokenId) != msg.sender) revert TokenNotOwned();
+                if (block.timestamp > ensRegistrar.nameExpires(tokenId)) revert TokenExpired();
             }
-
-            if (block.timestamp > ensRegistrar.nameExpires(tokenId)) revert TokenExpired();
         }
     }
 

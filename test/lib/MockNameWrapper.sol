@@ -19,8 +19,8 @@ contract MockNameWrapper is ERC1155, INameWrapper {
         return _owners[tokenId];
     }
 
-    function getData(uint256) public view override returns (address, uint32, uint64) {
-        return (address(0), fuses, 0);
+    function getData(uint256 tokenId) public view override returns (address, uint32, uint64) {
+        return (_owners[tokenId], fuses, uint64(block.timestamp + 30 days));
     }
 
     function setFuses(uint32 fuses_) external returns (uint32 newFuses) {

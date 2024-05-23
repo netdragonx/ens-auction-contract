@@ -180,28 +180,16 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     function bid(uint256 auctionId, uint256 bidAmount) external payable {
         Auction storage auction = auctions[auctionId];
         Bidder storage bidder = bidders[msg.sender];
+        uint256 minimumBid;
 
-        if (auction.status != Status.Active) {
-            revert InvalidStatus();
-        }
-
-        if (block.timestamp < auction.buyNowEndTime) {
-            revert AuctionBuyNowPeriod();
-        }
-
-        if (block.timestamp > auction.endTime) {
-            revert AuctionEnded();
-        }
-
-        if (msg.sender == auction.seller) {
-            revert SellerCannotBid();
-        }
+        if (auction.status != Status.Active) revert InvalidStatus();
+        if (block.timestamp < auction.buyNowEndTime) revert AuctionBuyNowPeriod();
+        if (block.timestamp > auction.endTime) revert AuctionEnded();
+        if (msg.sender == auction.seller) revert SellerCannotBid();
 
         if (block.timestamp >= auction.endTime - antiSnipeDuration) {
             auction.endTime += uint64(antiSnipeDuration);
         }
-        
-        uint256 minimumBid;
 
         if (auction.highestBid == 0) {
             minimumBid = auction.startingPrice;
@@ -209,9 +197,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             minimumBid = auction.highestBid + minBidIncrement;
         }
 
-        if (bidAmount < minimumBid) {
-            revert BidTooLow();
-        }
+        if (bidAmount < minimumBid) revert BidTooLow();
 
         _processPayment(bidAmount);
 
@@ -243,13 +229,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         Auction storage auction = auctions[auctionId];
         Bidder storage bidder = bidders[msg.sender];
 
-        if (auction.status != Status.Active) {
-            revert InvalidStatus();
-        }
-
-        if (block.timestamp > auction.buyNowEndTime) {
-            revert BuyNowUnavailable();
-        }
+        if (auction.status != Status.Active) revert InvalidStatus();
+        if (block.timestamp > auction.buyNowEndTime) revert BuyNowUnavailable();
 
         _processPayment(auction.buyNowPrice);
         
@@ -277,13 +258,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         Auction storage auction = auctions[auctionId];
         Seller storage seller = sellers[auction.seller];
 
-        if (auction.status != Status.Active) {
-            revert InvalidStatus();
-        }
-
-        if (block.timestamp < auction.endTime) {
-            revert AuctionNotEnded();
-        }
+        if (auction.status != Status.Active) revert InvalidStatus();
+        if (block.timestamp < auction.endTime) revert AuctionNotEnded();
 
         auction.status = Status.Claimed;
 
@@ -306,21 +282,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     function markAbandoned(uint256 auctionId) external {
         Auction storage auction = auctions[auctionId];
 
-        if (auction.status != Status.Active) {
-            revert InvalidStatus();
-        }
-
-        if (msg.sender != auction.seller) {
-            revert NotAuthorized();
-        }
-
-        if (block.timestamp < auction.endTime + settlementDuration) {
-            revert SettlementPeriodNotExpired();
-        }
-
-        if (auction.highestBidder == address(0)) {
-            revert AuctionHadNoBids();
-        }
+        if (auction.status != Status.Active) revert InvalidStatus();
+        if (msg.sender != auction.seller) revert NotAuthorized();
+        if (block.timestamp < auction.endTime + settlementDuration) revert SettlementPeriodNotExpired();
+        if (auction.highestBidder == address(0)) revert AuctionHadNoBids();
 
         auction.status = Status.Abandoned;
 
@@ -343,21 +308,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     function markUnclaimable(uint256 auctionId) external {
         Auction storage auction = auctions[auctionId];
         
-        if (auction.status != Status.Active) {
-            revert InvalidStatus();
-        }
-
-        if (block.timestamp > auction.endTime + settlementDuration) {
-            revert SettlementPeriodEnded();
-        }
-
-        if (msg.sender != auction.highestBidder) {
-            revert NotHighestBidder();
-        }
-
-        if (_isClaimable(auction)) {
-            revert AuctionIsClaimable();
-        }
+        if (auction.status != Status.Active) revert InvalidStatus();
+        if (block.timestamp > auction.endTime + settlementDuration) revert SettlementPeriodEnded();
+        if (msg.sender != auction.highestBidder) revert NotHighestBidder();
+        if (_isClaimable(auction)) revert AuctionIsClaimable();
 
         auction.status = Status.Unclaimable;
 
@@ -506,9 +460,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         for (uint256 i; i < tokenIds.length; ++i) {
             uint256 tokenId = tokenIds[i];
 
-            if (tokenOnAuction[tokenId]) {
-                revert TokenAlreadyInAuction();
-            }
+            if (tokenOnAuction[tokenId]) revert TokenAlreadyInAuction();
 
             tokenOnAuction[tokenId] = true;
 
@@ -520,9 +472,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
                 if (ensRegistrar.ownerOf(tokenId) != msg.sender) revert TokenNotOwned();
             }
 
-            if (block.timestamp > ensRegistrar.nameExpires(tokenId)) {
-                revert TokenExpired();
-            }
+            if (block.timestamp > ensRegistrar.nameExpires(tokenId)) revert TokenExpired();
         }
     }
 
@@ -601,9 +551,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             paymentFromMsgValue = paymentDue - bidder.balance;
         }
 
-        if (msg.value != paymentFromMsgValue) {
-            revert InvalidValue();
-        }
+        if (msg.value != paymentFromMsgValue) revert InvalidValue();
 
         bidder.balance -= paymentFromBalance;
     }

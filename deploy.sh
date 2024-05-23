@@ -43,6 +43,8 @@ testnet() {
         --optimize \
         --optimizer-runs 1000 \
         --gas-estimate-multiplier 150 \
+        --verify \
+        --legacy \
         --sender "$ADDRESS_DEPLOYER" \
         --interactives 1 \
         --broadcast
@@ -73,6 +75,7 @@ mainnet() {
         --optimizer-runs 1000 \
         --gas-estimate-multiplier 150 \
         --verify \
+        --legacy \
         --sender "$ADDRESS_DEPLOYER" \
         --interactives 1 \
         --broadcast

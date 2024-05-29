@@ -21,9 +21,15 @@ anvil() {
 
 testnet() {
     local rpcUrl=$1
-    
+    local chain=$2
+
     if [ -z "$rpcUrl" ]; then
         echo "Missing rpcUrl"
+        exit 1
+    fi
+
+    if [ -z "$chain" ]; then
+        echo "Missing chain"
         exit 1
     fi
 
@@ -43,6 +49,7 @@ testnet() {
         --optimize \
         --optimizer-runs 1000 \
         --gas-estimate-multiplier 150 \
+        --chain "$chain" \
         --verify \
         --legacy \
         --sender "$ADDRESS_DEPLOYER" \
@@ -88,7 +95,7 @@ case $1 in
         ;;
     sepolia)
         . .env.testnet.local
-        testnet https://eth-sepolia.g.alchemy.com/v2/$ALCHEMY_API_KEY
+        testnet https://eth-sepolia.g.alchemy.com/v2/$ALCHEMY_API_KEY sepolia
         ;;
     mainnet)
         . .env.mainnet.local

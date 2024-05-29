@@ -5,9 +5,9 @@ import "solady/src/auth/Ownable.sol";
 import "./IFeeCalculator.sol";
 
 contract DynamicFeeCalculator is IFeeCalculator, Ownable {
-    uint256 public baseFee = 0.05 ether;
-    uint256 public linearFee = 0.01 ether;
-    uint256 public penaltyFee = 0.01 ether;
+    uint256 public baseFee = 0.01 ether;
+    uint256 public linearFee = 0.02 ether;
+    uint256 public penaltyFee = 0.03 ether;
 
     event BaseFeeUpdated(uint256 baseFee);
     event LinearFeeUpdated(uint256 linearFee);
@@ -18,14 +18,17 @@ contract DynamicFeeCalculator is IFeeCalculator, Ownable {
     }
 
     function calculateFee(
-        uint24 totalAuctions,
-        uint24 totalSold,
-        uint24 totalUnclaimable,
-        uint24 totalBidderAbandoned
+        uint256 totalActiveAuctions,
+        uint24 sellerTotalAuctions,
+        uint24 sellerTotalSold,
+        uint24 sellerTotalUnclaimable,
+        uint24 sellerTotalBidderAbandoned
     ) public view returns (uint256) {
-        return (baseFee +
-            (linearFee * (totalAuctions - totalSold - totalBidderAbandoned)) +
-            (penaltyFee * totalUnclaimable));
+        if (totalActiveAuctions == 0) return 0;
+
+        return (baseFee * totalActiveAuctions) +
+            (linearFee * (sellerTotalAuctions - sellerTotalSold - sellerTotalBidderAbandoned)) +
+            (penaltyFee * sellerTotalUnclaimable);
     }
 
     function setBaseFee(uint256 baseFee_) external onlyOwner {

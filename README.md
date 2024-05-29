@@ -1,66 +1,86 @@
-## Foundry
+                       ░▒▓████████▓▒░▒▓███████▓▒░ ░▒▓███████▓▒░
+                       ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░       
+                       ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░       
+                       ░▒▓██████▓▒░ ░▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░ 
+                       ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░      ░▒▓█▓▒░
+                       ░▒▓█▓▒░      ░▒▓█▓▒  ▒▓█▓▒░      ░▒▓█▓▒░
+                       ░▒▓████████▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓███████▓▒  
+    
+                          ___________
+                          \         /
+                           )_______(
+                           |"""""""|_.-._,.---------.,_.-._
+                           |       | | |               | | ''-.
+                           |       |_| |_             _| |_..-'
+                           |_______| '-' `'---------'` '-'
+                           )"""""""(
+                          /_________\
+                          `'-------'`
+                        .-------------.
+                       /_______________\
+      
+     ░▒▓██████▓▒  ▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░▒▓████████▓▒░▒▓█▓▒  ▒▓██████▓▒  ▒▓███████▓▒░  
+    ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
+    ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░        ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
+    ░▒▓████████▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░        ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
+    ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░        ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
+    ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
+    ░▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░ ░▒▓██████▓▒░  ░▒▓█▓▒░   ░▒▓█▓▒  ▒▓██████▓▒  ▒▓█▓▒  ▒▓█▓▒░ 
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+# ENS Auction
 
-Foundry consists of:
+The ENS.Auction contract offers unique features to encourage high quality ENS listings and prevent spam.
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+## Table of Contents
 
-## Documentation
+- [Installation](#installation)
+- [Usage](#usage)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [License](#license)
 
-https://book.getfoundry.sh/
+## Installation
+
+To install and set up the project, follow these steps:
+
+1. Clone the repository:
+    ```bash
+    git clone https://github.com/netdragonx/ens-auction-contract
+    ```
+
+2. Install Foundry by following the instructions [here](https://github.com/foundry-rs/foundry#installation).
+
+3. Install the dependencies:
+    ```bash
+    forge install
+    ```
+
+4. Compile the smart contracts:
+    ```bash
+    forge build
+    ```
 
 ## Usage
 
-### Build
+To deploy the smart contracts to a local blockchain, run:
 
-```shell
-$ forge build
+```bash
+forge script script/Deploy.s.sol:Deploy --fork-url http://localhost:8545 --broadcast
 ```
 
-### Test
+## Testing
 
-```shell
-$ forge test
+To run the test suite, use the following command:
+
+```bash
+forge test
 ```
 
-### Format
+## Contributing
 
-```shell
-$ forge fmt
-```
+Contributions are welcome. Fork the repo and create a PR.
 
-### Gas Snapshots
+## License
 
-```shell
-$ forge snapshot
-```
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```

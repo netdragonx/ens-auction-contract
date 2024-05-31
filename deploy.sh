@@ -80,7 +80,7 @@ mainnet() {
         --rpc-url "$rpcUrl" \
         --optimize \
         --optimizer-runs 1000 \
-        --gas-estimate-multiplier 150 \
+        --gas-estimate-multiplier 120 \
         --verify \
         --legacy \
         --sender "$ADDRESS_DEPLOYER" \

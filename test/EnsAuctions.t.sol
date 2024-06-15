@@ -50,7 +50,7 @@ contract EnsAuctionsTest is Test {
         mockRegistrar = new MockRegistrar();
         mockNameWrapper = new MockNameWrapper();
         feeCalculator = new DynamicFeeCalculator();
-        
+
         auctions = new EnsAuctions(
             address(mockRegistrar),
             address(mockNameWrapper),
@@ -89,9 +89,9 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user1);
 
         uint256 startBalance = user1.balance;
-        uint256 fee = auctions.calculateFee(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
 
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
         assertEq(user1.balance, startBalance - fee, "Balance should decrease by fee");
         assertEq(auctions.nextAuctionId(), 2, "nextAuctionId should be incremented");
         assertEq(feeRecipient.balance, fee, "feeRecipient should have received the fee");
@@ -108,8 +108,8 @@ contract EnsAuctionsTest is Test {
             uint256 _tokenCount
         ) = auctions.auctions(1);
 
-        assertEq(_buyNowEndTime, block.timestamp + auctions.buyNowDuration(), "Buy now end time should be set correctly");
-        assertEq(_endTime, block.timestamp + auctions.buyNowDuration() + auctions.auctionDuration(), "Auction end time should be set correctly");
+        assertEq(_buyNowEndTime, auctions.getNextEventTime(), "Buy now end time should be set correctly");
+        assertEq(_endTime, auctions.getNextEventTime() + auctions.auctionDuration(), "Auction end time should be set correctly");
         assertEq(_tokenCount, 3, "Token count should match the number of tokens auctioned");
         assertEq(_seller, user1, "Seller should be user1");
         assertEq(_highestBidder, address(0));
@@ -128,7 +128,7 @@ contract EnsAuctionsTest is Test {
         vm.assume(user1.balance >= _startingPrice);
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
         assertEq(auctions.nextAuctionId(), 2, "nextAuctionId should be incremented");
 
         (
@@ -147,17 +147,17 @@ contract EnsAuctionsTest is Test {
         assertEq(_highestBid, 0);
         assertEq(_seller, user1);
         assertEq(_tokenCount, 3);
-        assertEq(_buyNowEndTime, block.timestamp + auctions.buyNowDuration());
-        assertEq(_endTime, block.timestamp + auctions.buyNowDuration() + auctions.auctionDuration());
+        assertEq(_buyNowEndTime, auctions.getNextEventTime());
+        assertEq(_endTime, auctions.getNextEventTime() + auctions.auctionDuration());
     }
 
     function test_startAuction_Success_NextAuctionIdIncrements() public {
         uint256 nextAuctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(1, startingPrice);
@@ -171,14 +171,14 @@ contract EnsAuctionsTest is Test {
         mockRegistrar.transferFrom(user2, user1, tokenIds[2]);
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
         assertEq(auctions.nextAuctionId(), nextAuctionId + 2, "nextAuctionId should be incremented");
     }
 
     function test_startAuction_WithWrappedNames() public {
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        uint256 fee = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
         
         (
             , 
@@ -199,12 +199,12 @@ contract EnsAuctionsTest is Test {
     function test_startAuction_RevertIf_InvalidFee() public {
         vm.startPrank(user1);
 
-        uint256 fee = auctions.calculateFee(user1);
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds1, unwrapped1);
+        uint256 fee = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds1, unwrapped1, false);
 
-        fee = auctions.calculateFee(user1);
+        fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("InvalidFee()")));
-        auctions.startAuction{value: fee - 0.01 ether}(startingPrice, buyNowPrice, tokenIds2, unwrapped2);
+        auctions.startAuction{value: fee - 0.01 ether}(startingPrice, buyNowPrice, tokenIds2, unwrapped2, false);
     }
 
     function test_startAuction_RevertIf_MaxTokensPerTxReached() public {
@@ -212,47 +212,47 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user1);
         uint256[] memory manyTokenIds = new uint256[](11);
         bool[] memory manyWrapped = new bool[](11);
-        uint256 fee = auctions.calculateFee(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("MaxTokensPerTxReached()")));
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, manyTokenIds, manyWrapped);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, manyTokenIds, manyWrapped, false);
     }
 
     function test_startAuction_RevertIf_StartPriceTooLow() public {
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("StartPriceTooLow()")));
-        auctions.startAuction{value: fee}(startingPrice - 0.001 ether, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: fee}(startingPrice - 0.001 ether, buyNowPrice, tokenIds, unwrapped, false);
     }
 
     function test_startAuction_RevertIf_BuyNowTooLow() public {
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("BuyNowTooLow()")));
-        auctions.startAuction{value: fee}(  startingPrice, buyNowPrice - 0.001 ether, tokenIds, unwrapped);
+        auctions.startAuction{value: fee}(  startingPrice, buyNowPrice - 0.001 ether, tokenIds, unwrapped, false);
     }
 
     function test_startAuction_RevertIf_BuyNowLessThanStartingPrice() public {
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("BuyNowTooLow()")));
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice - 0.001 ether, tokenIds, unwrapped);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice - 0.001 ether, tokenIds, unwrapped, false);
     }
 
     function test_startAuction_RevertIf_TokenAlreadyInAuction() public {
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        uint256 fee = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        fee = auctions.calculateFee(user1);
+        fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("TokenAlreadyInAuction()")));
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
     }
 
     function test_startAuction_RevertIf_InvalidLengthOfTokenIds() public {
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("InvalidLengthOfTokenIds()")));
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, new uint256[](0), new bool[](0));
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, new uint256[](0), new bool[](0), false);
     }
 
     function test_startAuction_RevertIf_TokenNotOwned() public {
@@ -262,9 +262,9 @@ contract EnsAuctionsTest is Test {
         notOwnedTokenIds[0] = tokenCount + 1;
 
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("TokenNotOwned()")));
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, notOwnedTokenIds, unwrapped1);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, notOwnedTokenIds, unwrapped1, false);
     }
 
     function test_startAuction_Fees() public {
@@ -275,14 +275,14 @@ contract EnsAuctionsTest is Test {
 
         uint256 startBalance = user1.balance;
         
-        uint256 fee1 = auctions.calculateFee(user1);
-        auctions.startAuction{value: fee1}(startingPrice, buyNowPrice, tokenIds1, unwrapped1);
+        uint256 fee1 = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee1}(startingPrice, buyNowPrice, tokenIds1, unwrapped1, false);
 
-        uint256 fee2 = auctions.calculateFee(user1);
-        auctions.startAuction{value: fee2}(startingPrice, buyNowPrice, tokenIds2, unwrapped2);
+        uint256 fee2 = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee2}(startingPrice, buyNowPrice, tokenIds2, unwrapped2, false);
 
-        uint256 fee3 = auctions.calculateFee(user1);
-        auctions.startAuction{value: fee3}(startingPrice, buyNowPrice, tokenIds3, unwrapped3);
+        uint256 fee3 = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee3}(startingPrice, buyNowPrice, tokenIds3, unwrapped3, false);
 
         assertEq(user1.balance, startBalance - fee1 - fee2 - fee3, "Balance should decrease by fee");
         assertEq(feeRecipient.balance, fee1 + fee2 + fee3, "feeRecipient should have received the fee");
@@ -296,28 +296,28 @@ contract EnsAuctionsTest is Test {
         notOwnedTokenIds[0] = tokenCount + 1;
 
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("TokenNotOwned()")));
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, notOwnedTokenIds, wrapped1);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, notOwnedTokenIds, wrapped1, false);
     }
 
     function test_startAuction_RevertIf_WrappedNameAlreadyInAuction() public {
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        uint256 fee = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
 
-        fee = auctions.calculateFee(user1);
+        fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("TokenAlreadyInAuction()")));
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
     }
 
     function test_startAuction_RevertIf_WrappedNameNotTransferrable() public {
         mockNameWrapper.setFuses(CANNOT_TRANSFER);
 
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("TokenNotTransferrable()")));
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
     }
 
     function test_startAuction_RevertIf_TokenExpired() public {
@@ -325,9 +325,9 @@ contract EnsAuctionsTest is Test {
         mockRegistrar.expireToken(1 days);
 
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
         vm.expectRevert(bytes4(keccak256("TokenExpired()")));
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
     }
 
     //
@@ -335,9 +335,9 @@ contract EnsAuctionsTest is Test {
     //
     function test_bid_Success() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
         
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(1, startingPrice);
@@ -350,8 +350,8 @@ contract EnsAuctionsTest is Test {
 
     function test_bid_Success_SelfBidding() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(1, startingPrice);
@@ -365,10 +365,10 @@ contract EnsAuctionsTest is Test {
 
     function test_bid_Success_LastMinuteBidding() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
         (uint256 endTimeA,,,,,,,,) = auctions.auctions(1);
 
-        skip(auctions.buyNowDuration() + auctions.auctionDuration() - 1); // 1 second before auction ends
+        vm.warp(auctions.getNextEventTime() + auctions.auctionDuration() - 1);
 
         vm.startPrank(user2);
         auctions.bid{value: 0.06 ether}(1, 0.06 ether);
@@ -380,9 +380,9 @@ contract EnsAuctionsTest is Test {
 
     function test_bid_Success_UsingAvailableBalance() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(0.01 ether, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: 0.01 ether}(1, 0.01 ether);
@@ -418,9 +418,9 @@ contract EnsAuctionsTest is Test {
         vm.deal(user3, 10 ether);
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(0.01 ether, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: 0.5 ether}(1, 0.5 ether);
@@ -440,9 +440,9 @@ contract EnsAuctionsTest is Test {
 
         // new auction
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(0.01 ether, buyNowPrice, tokenIds345, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(0.01 ether, buyNowPrice, tokenIds345, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid(2, 0.24 ether);
@@ -464,9 +464,9 @@ contract EnsAuctionsTest is Test {
     
     function test_bid_WithWrappedNames() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
         
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(1, startingPrice);
@@ -479,7 +479,7 @@ contract EnsAuctionsTest is Test {
 
     function test_bid_RevertIf_InvalidStatus() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
         vm.startPrank(user2);
         auctions.buyNow{value: buyNowPrice}(1);
@@ -492,7 +492,7 @@ contract EnsAuctionsTest is Test {
 
     function test_bid_RevertIf_AuctionBuyNowPeriod() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
         vm.startPrank(user2);
         vm.expectRevert(bytes4(keccak256("AuctionBuyNowPeriod()")));
@@ -501,9 +501,9 @@ contract EnsAuctionsTest is Test {
 
     function test_bid_RevertIf_AuctionEnded() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + auctions.auctionDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + auctions.auctionDuration() + 1);
 
         vm.startPrank(user2);
         vm.expectRevert(bytes4(keccak256("AuctionEnded()")));
@@ -512,9 +512,9 @@ contract EnsAuctionsTest is Test {
 
     function test_bid_RevertIf_SellerCannotBid() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.expectRevert(bytes4(keccak256("SellerCannotBid()")));
         auctions.bid{value: startingPrice}(1, startingPrice);
@@ -522,10 +522,10 @@ contract EnsAuctionsTest is Test {
 
     function test_bid_RevertIf_BelowMinimumIncrement() public {
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        uint256 fee = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
         
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(1, startingPrice);
@@ -540,9 +540,9 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
         
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -565,9 +565,9 @@ contract EnsAuctionsTest is Test {
         vm.deal(user3, bidB);
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
         
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: bidA}(1, bidA);
@@ -585,8 +585,8 @@ contract EnsAuctionsTest is Test {
     //
     function test_buyNow_Success() public {
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        uint256 fee = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
         assertEq(feeRecipient.balance, fee, "feeRecipient should receive fee");
 
@@ -616,8 +616,8 @@ contract EnsAuctionsTest is Test {
 
     function test_buyNow_RevertIf_InvalidStatus() public {
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        uint256 fee = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
         vm.startPrank(user2);
         auctions.buyNow{value: buyNowPrice}(1);
@@ -629,10 +629,10 @@ contract EnsAuctionsTest is Test {
 
     function test_buyNow_RevertIf_BuyNowUnavailable() public {
         vm.startPrank(user1);
-        uint256 fee = auctions.calculateFee(user1);
-        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        uint256 fee = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         vm.expectRevert(bytes4(keccak256("BuyNowUnavailable()")));
@@ -646,9 +646,9 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -684,9 +684,9 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -702,9 +702,9 @@ contract EnsAuctionsTest is Test {
 
     function test_claim_RevertIf_BeforeAuctionEnded() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(1, startingPrice);
@@ -717,9 +717,9 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -738,9 +738,9 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -752,6 +752,17 @@ contract EnsAuctionsTest is Test {
         auctions.claim(auctionId);
     }
 
+    function test_claim_RevertIf_NoBids() public {
+        uint256 auctionId = auctions.nextAuctionId();
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+
+        vm.warp(auctions.getNextEventTime() + auctions.auctionDuration() + 1);
+
+        vm.expectRevert();
+        auctions.claim(auctionId);
+    }
 
     //
     // markAbandoned()
@@ -760,9 +771,9 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -783,8 +794,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -802,8 +813,9 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-        skip(auctions.buyNowDuration() + auctions.auctionDuration() + auctions.settlementDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+
+        vm.warp(auctions.getNextEventTime() + auctions.auctionDuration() + auctions.settlementDuration() + 1);
         
         vm.expectRevert(bytes4(keccak256("AuctionHadNoBids()")));
         auctions.markAbandoned(auctionId);
@@ -813,8 +825,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -830,8 +842,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -850,8 +862,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -876,8 +888,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -902,8 +914,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -928,8 +940,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -958,8 +970,8 @@ contract EnsAuctionsTest is Test {
         mockRegistrar.approve(address(auctions), tokenIds[0]);
         mockRegistrar.approve(address(auctions), tokenIds[1]);
         mockRegistrar.approve(address(auctions), tokenIds[2]);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -984,8 +996,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -1010,8 +1022,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -1025,8 +1037,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -1040,7 +1052,7 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
         vm.startPrank(user2);
         auctions.buyNow{value: buyNowPrice}(auctionId);
@@ -1054,7 +1066,7 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
 
         vm.startPrank(user2);
         auctions.buyNow{value: buyNowPrice}(auctionId);
@@ -1068,8 +1080,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -1083,8 +1095,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -1098,8 +1110,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -1114,8 +1126,8 @@ contract EnsAuctionsTest is Test {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, wrapped);
-        skip(auctions.buyNowDuration() + 1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -1131,9 +1143,9 @@ contract EnsAuctionsTest is Test {
     //
     function test_withdrawBalance_Success() public {
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(0.01 ether, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
         
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: 0.01 ether}(1, 0.01 ether);
@@ -1153,25 +1165,24 @@ contract EnsAuctionsTest is Test {
     function test_withdrawBalance_Success_Combined_BidderSeller() public {
         feeCalculator.setBaseFee(0.05 ether);
         feeCalculator.setLinearFee(0.01 ether);
-        auctions.setBuyNowDuration(4 hours);
         auctions.setAuctionDuration(3 days);
         
-        uint256 user1Fee = auctions.calculateFee(user1);
+        uint256 user1Fee = auctions.calculateFee(user1, false);
         uint256 user1Bid = 0.05 ether;
 
         vm.startPrank(user1);
-        auctions.startAuction{value: user1Fee}(0.01 ether, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: user1Fee}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
         
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
-        uint256 user2Fee = auctions.calculateFee(user2);
+        uint256 user2Fee = auctions.calculateFee(user2, false);
         uint256 user2Bid = 0.01 ether;
 
         vm.startPrank(user2);
         auctions.bid{value: user2Bid}(1, user2Bid);
-        auctions.startAuction{value: user2Fee}(0.02 ether, buyNowPrice, tokenIdsB, unwrapped);
+        auctions.startAuction{value: user2Fee}(0.02 ether, buyNowPrice, tokenIdsB, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user1);
         auctions.bid{value: user1Bid}(2, user1Bid);
@@ -1225,7 +1236,7 @@ contract EnsAuctionsTest is Test {
         auctions.setMaxTokens(50);
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
         (uint256[] memory _tokenIds) = auctions.getAuctionTokens(1);
 
@@ -1237,7 +1248,7 @@ contract EnsAuctionsTest is Test {
     function test_setMinStartingBid_Success() public {
         auctions.setMinStartingBid(0.01 ether);
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
     }
 
     function test_setMinBuyNowPrice_Success() public {
@@ -1254,9 +1265,9 @@ contract EnsAuctionsTest is Test {
         auctions.setMinBidIncrement(0.02 ether);
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: 0.07 ether}(1, 0.07 ether);
@@ -1267,9 +1278,9 @@ contract EnsAuctionsTest is Test {
         auctions.setMinBidIncrement(0.02 ether);
 
         vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1)}(startingPrice, buyNowPrice, tokenIds, unwrapped);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
-        skip(auctions.buyNowDuration() + 1);
+        vm.warp(auctions.getNextEventTime() + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: 0.07 ether}(1, 0.07 ether);
@@ -1307,16 +1318,6 @@ contract EnsAuctionsTest is Test {
         auctions.setSettlementDuration(60 * 60 * 24 * 7);
     }
 
-    function test_setBuyNowDuration_Success() public {
-        auctions.setBuyNowDuration(60 * 60 * 24 * 7);
-    }
-
-    function test_setBuyNowDuration_RevertIf_NotOwner() public {
-        vm.startPrank(vm.addr(69));
-        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
-        auctions.setBuyNowDuration(60 * 60 * 24 * 7);
-    }
-
     function test_setFeeRecipient_Success() public {
         auctions.setFeeRecipient(vm.addr(69));
     }
@@ -1335,38 +1336,6 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(vm.addr(69));
         vm.expectRevert(bytes4(keccak256("Unauthorized()")));
         auctions.setAntiSnipeDuration(60);
-    }
-
-    function test_setBaseFee_Success() public {
-        feeCalculator.setBaseFee(0.01 ether);
-
-        vm.startPrank(vm.addr(69));
-        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
-        feeCalculator.setBaseFee(0.01 ether);
-    }
-
-    function test_setLinearFee_Success() public {
-        feeCalculator.setLinearFee(0.01 ether);
-
-        vm.startPrank(vm.addr(69));
-        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
-        feeCalculator.setLinearFee(0.01 ether);
-    }
-
-    function test_setLinearFee_RevertIf_NotOwner() public {
-        vm.startPrank(vm.addr(69));
-        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
-        feeCalculator.setLinearFee(0.01 ether);
-    }
-
-    function test_setPenaltyFee_Success() public {
-        feeCalculator.setPenaltyFee(0.01 ether);
-    }
-
-    function test_setPenaltyFee_RevertIf_NotOwner() public {
-        vm.startPrank(vm.addr(69));
-        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
-        feeCalculator.setPenaltyFee(0.01 ether);
     }
 
     function test_setFeeCalculator_Success() public {

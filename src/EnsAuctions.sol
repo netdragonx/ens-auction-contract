@@ -29,7 +29,7 @@ pragma solidity ^0.8.25;
 //  ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░        ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
 //  ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
 //  ░▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░ ░▒▓██████▓▒░  ░▒▓█▓▒░   ░▒▓█▓▒  ▒▓██████▓▒  ▒▓█▓▒  ▒▓█▓▒░ 
-//                                                                   https://ens.auction
+//  v1.2                                                             https://ens.auction
 
 import "solady/src/auth/Ownable.sol";
 import "./IEnsAuctions.sol";
@@ -80,11 +80,12 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     uint256 public minStartingPrice = 0.01 ether;
     uint256 public minBuyNowPrice = 0.05 ether;
     uint256 public minBidIncrement = 0.01 ether;
-    uint256 public auctionDuration = 24 hours;
-    uint256 public buyNowDuration = 3 days;
+    uint256 public auctionDuration = 2 days;
     uint256 public settlementDuration = 7 days;
-    uint256 public antiSnipeDuration = 10 minutes;
+    uint256 public antiSnipeDuration = 15 minutes;
     uint256 public maxTokens = 20;
+    uint256 public eventDayOfWeek = 5;
+    uint256 public eventStartTime = 16 hours;
 
     mapping(address => Seller) public sellers;
     mapping(address => uint256) public balances;
@@ -106,27 +107,40 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
     /**
      *
-     * startAuction - Starts an auction for one or more ENS tokens
-     *
-     * @param tokenIds - The token ids to auction
+     * EXTERNAL FUNCTIONS
      *
      */
+
+    /**
+     * startAuction - Starts an auction for one or more ENS tokens
+     *
+     * @param startingPrice - The starting price for the auction
+     * @param buyNowPrice - The buy now price for the auction
+     * @param tokenIds - The token ids to auction
+     * @param wrapped - Whether the tokens are wrapped
+     * @param useDiscount - Whether to check for discounts
+     *
+     * Note: due to extra gas costs when checking token ownership or balances, we let 
+     * the frontend check for discounts offchain and decide whether to check for discounts or not.
+     */
+
     function startAuction(
         uint256 startingPrice,
         uint256 buyNowPrice,
         uint256[] calldata tokenIds,
-        bool[] calldata wrapped
+        bool[] calldata wrapped,
+        bool useDiscount
     ) external payable {
         uint256 tokenCount = tokenIds.length;
 
-        if (calculateFee(msg.sender) != msg.value) revert InvalidFee();
+        if (calculateFee(msg.sender, useDiscount) != msg.value) revert InvalidFee();
         if (tokenCount > maxTokens) revert MaxTokensPerTxReached();
         if (startingPrice < minStartingPrice) revert StartPriceTooLow();
         if (buyNowPrice < minBuyNowPrice || buyNowPrice <= startingPrice) revert BuyNowTooLow();
         if (tokenCount == 0 || tokenCount != wrapped.length) revert InvalidLengthOfTokenIds();
 
-        uint64 buyNowEndTime = uint64(block.timestamp + buyNowDuration);
-        uint64 endTime = uint64(buyNowEndTime + auctionDuration);
+        uint64 buyNowEndTime = getNextEventTime();
+        uint64 endTime = buyNowEndTime + uint64(auctionDuration);
 
         _validateTokens(tokenIds, wrapped, endTime);
 
@@ -236,6 +250,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      *
      * @param auctionId - The id of the auction to claim
      *
+     * note: anyone can call the claim function, and we save some gas by not 
+     * checking if auction has any bids. ERC721/1155 will revert for transfer
+     * attempts to address(0).
      */
     function claim(uint256 auctionId) external {
         Auction storage auction = auctions[auctionId];
@@ -305,32 +322,6 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
     /**
      *
-     * calculateFee - Calculates the auction fee based on seller history
-     *
-     * @param sellerAddress - Address of seller
-     *
-     * Dynamic fees are designed to encourage sellers to:
-     *
-     *  a) use Starting Price / Buy Now prices that reflect market conditions
-     *  b) list high quality names
-     *  c) prevent listing spam
-     *  d) make sure all auctions remain claimable
-     * 
-     */
-    function calculateFee(address sellerAddress) public view returns (uint256) {
-        Seller storage seller = sellers[sellerAddress];
-
-        return feeCalculator.calculateFee(
-            _getActiveAuctionCount(),
-            seller.totalAuctions,
-            seller.totalSold,
-            seller.totalUnclaimable,
-            seller.totalBidderAbandoned
-        );
-    }
-
-    /**
-     *
      * withdrawBalance - Withdraws your complete balance from the contract
      *
      */
@@ -347,10 +338,45 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
     /**
      *
-     * Views
+     * PUBLIC VIEWS
      *
      */
 
+    /**
+     *
+     * calculateFee - Calculates the auction fee based on seller history
+     *
+     * @param sellerAddress - Address of seller
+     * @param useDiscount - Whether to check for discounts
+     *
+     * Dynamic fees are designed to encourage sellers to:
+     *
+     *  a) use Starting Price / Buy Now prices that reflect market conditions
+     *  b) list high quality names
+     *  c) prevent listing spam
+     *  d) make sure all auctions remain claimable
+     * 
+     */
+    function calculateFee(address sellerAddress, bool useDiscount) public view returns (uint256) {
+        Seller storage seller = sellers[sellerAddress];
+
+        return feeCalculator.calculateFee(
+            _getActiveAuctionCount(),
+            sellerAddress,
+            seller.totalAuctions,
+            seller.totalSold,
+            seller.totalUnclaimable,
+            seller.totalBidderAbandoned,
+            useDiscount
+        );
+    }
+
+    /**
+     * getAuctionTokens - Get the token ids of an auction
+     *
+     * @param auctionId - The id of the auction
+     *
+     */
     function getAuctionTokens(uint256 auctionId) external view returns (uint256[] memory) {
         Auction storage auction = auctions[auctionId];
 
@@ -366,8 +392,17 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     }
 
     /**
+     * getNextEventTime - Get the next event time based on the event schedule
+     */
+    function getNextEventTime() public view returns (uint64) {
+        uint256 dayOfWeek = (block.timestamp / 1 days + 4) % 7;
+        uint256 daysUntilNextEvent = (7 + eventDayOfWeek - dayOfWeek) % 7;
+        return uint64((block.timestamp / 1 days + daysUntilNextEvent) * 1 days + eventStartTime);
+    }
+
+    /**
      *
-     * Setters
+     * SETTERS
      *
      */
 
@@ -406,11 +441,6 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         emit AuctionDurationUpdated(auctionDuration_);
     }
 
-    function setBuyNowDuration(uint256 buyNowDuration_) external onlyOwner {
-        buyNowDuration = buyNowDuration_;
-        emit BuyNowDurationUpdated(buyNowDuration_);
-    }
-
     function setSettlementDuration(uint256 settlementDuration_) external onlyOwner {
         settlementDuration = settlementDuration_;
         emit SettlementDurationUpdated(settlementDuration_);
@@ -421,10 +451,16 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         emit AntiSnipeDurationUpdated(antiSnipeDuration_);
     }
 
+    function setEventSchedule(uint256 dayOfWeek, uint256 startTime) external onlyOwner {
+        if (dayOfWeek > 7 || startTime > 24 hours) revert InvalidEventSchedule();
+        eventDayOfWeek = dayOfWeek;
+        eventStartTime = startTime;
+        emit EventScheduleUpdated(dayOfWeek, startTime);
+    }
 
     /**
      *
-     * Internal Functions
+     * INTERNAL FUNCTIONS
      *
      */
 
@@ -486,6 +522,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      *
      * @param auction - The auction to transfer tokens from
      *
+     * note: we save some gas by not checking if an auction has any bids as
+     * Registrar (ERC721) / NameWrapper (ERC1155) will both revert for transfer
+     * attempts to address(0).
      */
     function _transferTokens(Auction storage auction) internal {
         address seller = auction.seller;

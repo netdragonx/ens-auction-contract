@@ -6,7 +6,8 @@ interface IEnsAuctions {
         uint256 startingPrice,
         uint256 buyNowPrice,
         uint256[] calldata tokenIds,
-        bool[] calldata wrapped
+        bool[] calldata wrapped,
+        bool useDiscount
     ) external payable;
 
     function bid(uint256 auctionId, uint256 bidAmount) external payable;
@@ -14,18 +15,22 @@ interface IEnsAuctions {
     function claim(uint256 auctionId) external;
     function markAbandoned(uint256 auctionId) external;
     function markUnclaimable(uint256 auctionId) external;
-    function calculateFee(address sellerAddress) external view returns (uint256);
     function withdrawBalance() external;
-    
+
+    function calculateFee(address sellerAddress, bool useDiscount) external view returns (uint256);
     function getAuctionTokens(uint256 auctionId) external view returns (uint256[] memory);
+    function getNextEventTime() external view returns (uint64);
+
     function setMaxTokens(uint256 maxTokens_) external;
     function setMinBuyNowPrice(uint256 minBuyNowPrice_) external;
     function setMinStartingBid(uint256 minStartingPrice_) external;
     function setMinBidIncrement(uint256 minBidIncrement_) external;
     function setAuctionDuration(uint256 auctionDuration_) external;
-    function setBuyNowDuration(uint256 buyNowDuration_) external;
     function setSettlementDuration(uint256 settlementDuration_) external;
     function setAntiSnipeDuration(uint256 antiSnipeDuration_) external;
+    function setEventSchedule(uint256 dayOfWeek, uint256 startTime) external;
+    function setFeeCalculator(address feeCalculator_) external;
+    function setFeeRecipient(address feeRecipient_) external;
 
     event Started(
         uint256 auctionId,
@@ -49,11 +54,11 @@ interface IEnsAuctions {
     event MinBuyNowPriceUpdated(uint256 minBuyNowPrice);
     event MinBidIncrementUpdated(uint256 minBidIncrement);
     event AuctionDurationUpdated(uint256 auctionDuration);
-    event BuyNowDurationUpdated(uint256 buyNowDuration);
     event SettlementDurationUpdated(uint256 settlementDuration);
     event AntiSnipeDurationUpdated(uint256 antiSnipeDuration);
     event MaxTokensUpdated(uint256 maxTokens);
-
+    event EventScheduleUpdated(uint256 dayOfWeek, uint256 startTime);
+    
     error AuctionBuyNowPeriod();
     error AuctionEnded();
     error AuctionHadNoBids();
@@ -62,10 +67,11 @@ interface IEnsAuctions {
     error BidTooLow();
     error BuyNowTooLow();
     error BuyNowUnavailable();
-    error InvalidValue();
+    error InvalidEventSchedule();
     error InvalidFee();
     error InvalidLengthOfTokenIds();
     error InvalidStatus();
+    error InvalidValue();
     error MaxTokensPerTxReached();
     error NotApproved();
     error NotAuthorized();

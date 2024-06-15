@@ -2,14 +2,35 @@
 pragma solidity ^0.8.25;
 
 import "solady/src/auth/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "./IFeeCalculator.sol";
 
 contract DynamicFeeCalculator is IFeeCalculator, Ownable {
-    uint256 public baseFee = 0.01 ether;
-    uint256 public linearFee = 0.02 ether;
-    uint256 public penaltyFee = 0.03 ether;
+    enum TokenType {
+        ERC20,
+        ERC721,
+        ERC1155
+    }
 
+    struct Discount {
+        TokenType tokenType;
+        address tokenAddress;
+        uint256 tokenId;
+        uint256 threshold;
+        uint256 discount;
+    }
+
+    Discount[] public discounts;
+
+    uint256 public baseFee = 0.005 ether;
+    uint256 public linearFee = 0.01 ether;
+    uint256 public penaltyFee = 0.01 ether;
+
+    event AddedDiscounts(Discount[] discounts);
     event BaseFeeUpdated(uint256 baseFee);
+    event ClearedDiscounts();
     event LinearFeeUpdated(uint256 linearFee);
     event PenaltyFeeUpdated(uint256 penaltyFee);
 
@@ -18,17 +39,52 @@ contract DynamicFeeCalculator is IFeeCalculator, Ownable {
     }
 
     function calculateFee(
-        uint256 totalActiveAuctions,
-        uint24 sellerTotalAuctions,
-        uint24 sellerTotalSold,
-        uint24 sellerTotalUnclaimable,
-        uint24 sellerTotalBidderAbandoned
+        uint256 totalAuctionCount,
+        address seller,
+        uint24 auctionCount,
+        uint24 soldCount,
+        uint24 unclaimableCount,
+        uint24 abandonedCount,
+        bool checkForDiscounts
     ) public view returns (uint256) {
-        if (totalActiveAuctions == 0) return 0;
+        uint256 fee = (baseFee * totalAuctionCount) +
+            (linearFee * (auctionCount - soldCount - abandonedCount)) +
+            (penaltyFee * unclaimableCount);
 
-        return (baseFee * totalActiveAuctions) +
-            (linearFee * (sellerTotalAuctions - sellerTotalSold - sellerTotalBidderAbandoned)) +
-            (penaltyFee * sellerTotalUnclaimable);
+        if (checkForDiscounts) {
+            for (uint256 i = 0; i < discounts.length; i++) {
+                if (_isEligibleForDiscount(discounts[i], seller)) {
+                    return fee * discounts[i].discount / 100;
+                }
+            }
+        }
+
+        return fee;
+    }
+
+    function _isEligibleForDiscount(Discount memory discount, address seller) internal view returns (bool) {
+        if (TokenType.ERC721 == discount.tokenType) {
+            return IERC721(discount.tokenAddress).balanceOf(seller) > 0;
+        } else if (TokenType.ERC1155 == discount.tokenType) {
+            return IERC1155(discount.tokenAddress).balanceOf(seller, discount.tokenId) > discount.threshold;
+        } else if (TokenType.ERC20 == discount.tokenType) {
+            return IERC20(discount.tokenAddress).balanceOf(seller) > discount.threshold;
+        }
+
+        return false;
+    }
+
+    function addDiscounts(Discount[] calldata newDiscounts) external onlyOwner {
+        for (uint256 i = 0; i < newDiscounts.length; i++) {
+            discounts.push(newDiscounts[i]);
+        }
+
+        emit AddedDiscounts(newDiscounts);
+    }
+
+    function clearDiscounts() external onlyOwner {
+        delete discounts;
+        emit ClearedDiscounts();
     }
 
     function setBaseFee(uint256 baseFee_) external onlyOwner {

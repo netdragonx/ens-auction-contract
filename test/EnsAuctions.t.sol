@@ -97,9 +97,9 @@ contract EnsAuctionsTest is Test {
         assertEq(feeRecipient.balance, fee, "feeRecipient should have received the fee");
 
         (
-            uint64 _endTime, 
+            ,
             uint64 _startTime, 
-            , 
+            uint64 _endTime, 
             address _seller, 
             address _highestBidder, 
             uint256 _highestBid, 
@@ -132,9 +132,9 @@ contract EnsAuctionsTest is Test {
         assertEq(auctions.nextAuctionId(), 2, "nextAuctionId should be incremented");
 
         (
-            uint64 _endTime,
-            uint64 _startTime,
             ,
+            uint64 _startTime,
+            uint64 _endTime,
             address _seller,
             address _highestBidder,
             uint256 _highestBid,
@@ -366,14 +366,14 @@ contract EnsAuctionsTest is Test {
     function test_bid_Success_LastMinuteBidding() public {
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
-        (uint256 endTimeA,,,,,,,,) = auctions.auctions(1);
+        (,,uint256 endTimeA,,,,,,) = auctions.auctions(1);
 
         vm.warp(auctions.getNextEventEndTime() - 1);
 
         vm.startPrank(user2);
         auctions.bid{value: 0.06 ether}(1, 0.06 ether);
 
-        (uint256 endTimeB,,,,,,,,) = auctions.auctions(1);
+        (,,uint256 endTimeB,,,,,,) = auctions.auctions(1);
 
         assertLt(endTimeA, endTimeB, "New endtime should be greater than old endtime");
     }
@@ -783,7 +783,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user1);
         auctions.markAbandoned(auctionId);
 
-        (,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
+        (EnsAuctions.Status status,,,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
 
         assertTrue(status == EnsAuctions.Status.Abandoned, "Status should be Abandoned");
         assertEq(highestBidder, user2, "Highest bidder should be user2");
@@ -877,7 +877,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
 
-        (,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
+        (EnsAuctions.Status status,,,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
 
         assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
         assertEq(highestBidder, user2, "Highest bidder should be user2");
@@ -903,7 +903,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
 
-        (,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
+        (EnsAuctions.Status status,,,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
 
         assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
         assertEq(highestBidder, user2, "Highest bidder should be user2");
@@ -929,7 +929,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
 
-        (,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
+        (EnsAuctions.Status status,,,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
 
         assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
         assertEq(highestBidder, user2, "Highest bidder should be user2");
@@ -955,7 +955,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
 
-        (,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
+        (EnsAuctions.Status status,,,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
 
         assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
         assertEq(highestBidder, user2, "Highest bidder should be user2");
@@ -985,7 +985,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
 
-        (,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
+        (EnsAuctions.Status status,,,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
 
         assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
         assertEq(highestBidder, user2, "Highest bidder should be user2");
@@ -1011,7 +1011,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
 
-        (,, EnsAuctions.Status status,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
+        (EnsAuctions.Status status,,,, address highestBidder, uint256 highestBid,,,) = auctions.auctions(auctionId);
 
         assertTrue(status == EnsAuctions.Status.Unclaimable, "Status should be Unclaimable");
         assertEq(highestBidder, user2, "Highest bidder should be user2");

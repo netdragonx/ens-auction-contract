@@ -59,9 +59,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     }
 
     struct Auction {
-        uint64 endTime;
-        uint64 startTime;
         Status status;
+        uint64 startTime;
+        uint64 endTime;
         address seller;
         address highestBidder;
         uint256 highestBid;
@@ -169,8 +169,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             buyNowPrice,
             auction.endTime,
             auction.startTime,
-            tokenCount,
-            tokenIds
+            tokenCount
         );
     }
 

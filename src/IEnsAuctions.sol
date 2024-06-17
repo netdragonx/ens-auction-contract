@@ -44,8 +44,7 @@ interface IEnsAuctions {
         uint256 buyNowPrice,
         uint64 startTime,
         uint64 endTime,
-        uint256 tokenCount,
-        uint256[] tokenIds
+        uint256 tokenCount
     );
     event BuyNow(uint256 indexed auctionId, address buyer, uint256 value);
     event Bid(uint256 indexed auctionId, address bidder, uint256 value);

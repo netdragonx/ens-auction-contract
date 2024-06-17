@@ -60,7 +60,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
     struct Auction {
         uint64 endTime;
-        uint64 buyNowEndTime;
+        uint64 startTime;
         Status status;
         address seller;
         address highestBidder;
@@ -80,13 +80,14 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     uint256 public minStartingPrice = 0.01 ether;
     uint256 public minBuyNowPrice = 0.05 ether;
     uint256 public minBidIncrement = 0.01 ether;
-    uint256 public auctionDuration = 2 days;
     uint256 public settlementDuration = 7 days;
     uint256 public antiSnipeDuration = 15 minutes;
     uint256 public maxTokens = 20;
-    uint256 public eventDayOfWeek = 5;
+    uint256 public eventStartDay = 5;
     uint256 public eventStartTime = 16 hours;
-
+    uint256 public eventEndDay = 5;
+    uint256 public eventEndTime = 20 hours;
+    
     mapping(address => Seller) public sellers;
     mapping(address => uint256) public balances;
     mapping(uint256 => Auction) public auctions;
@@ -139,18 +140,17 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         if (buyNowPrice < minBuyNowPrice || buyNowPrice <= startingPrice) revert BuyNowTooLow();
         if (tokenCount == 0 || tokenCount != wrapped.length) revert InvalidLengthOfTokenIds();
 
-        uint64 buyNowEndTime = getNextEventTime();
-        uint64 endTime = buyNowEndTime + uint64(auctionDuration);
+        uint64 _eventEndTime = getNextEventEndTime();
 
-        _validateTokens(tokenIds, wrapped, endTime);
+        _validateTokens(tokenIds, wrapped, _eventEndTime);
 
         Auction storage auction = auctions[nextAuctionId];
         auction.seller = msg.sender;
         auction.tokenCount = tokenCount;
         auction.buyNowPrice = buyNowPrice;
-        auction.buyNowEndTime = buyNowEndTime;
+        auction.startTime = getNextEventStartTime();
+        auction.endTime = _eventEndTime;
         auction.startingPrice = startingPrice;
-        auction.endTime = endTime;
 
         for (uint256 i; i < tokenCount; ++i) {
             auction.tokens[i] = Token(tokenIds[i], wrapped[i]);
@@ -167,8 +167,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             msg.sender,
             startingPrice,
             buyNowPrice,
-            endTime,
-            buyNowEndTime,
+            auction.endTime,
+            auction.startTime,
             tokenCount,
             tokenIds
         );
@@ -186,7 +186,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         uint256 minimumBid;
 
         if (auction.status != Status.Active) revert InvalidStatus();
-        if (block.timestamp < auction.buyNowEndTime) revert AuctionBuyNowPeriod();
+        if (block.timestamp < auction.startTime) revert AuctionBuyNowPeriod();
         if (block.timestamp > auction.endTime) revert AuctionEnded();
         if (msg.sender == auction.seller) revert SellerCannotBid();
 
@@ -228,7 +228,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         Auction storage auction = auctions[auctionId];
 
         if (auction.status != Status.Active) revert InvalidStatus();
-        if (block.timestamp > auction.buyNowEndTime) revert BuyNowUnavailable();
+        if (block.timestamp > auction.startTime) revert BuyNowUnavailable();
 
         _processPayment(auction.buyNowPrice);
         
@@ -392,12 +392,21 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     }
 
     /**
-     * getNextEventTime - Get the next event time based on the event schedule
+     * getNextEventStartTime - Get the next event time based on the event schedule
      */
-    function getNextEventTime() public view returns (uint64) {
-        uint256 dayOfWeek = (block.timestamp / 1 days + 4) % 7;
-        uint256 daysUntilNextEvent = (7 + eventDayOfWeek - dayOfWeek) % 7;
+    function getNextEventStartTime() public view returns (uint64) {
+        uint256 dayOfWeek = (block.timestamp / 1 days + 3) % 7;
+        uint256 daysUntilNextEvent = (7 + eventStartDay - dayOfWeek) % 7;
         return uint64((block.timestamp / 1 days + daysUntilNextEvent) * 1 days + eventStartTime);
+    }
+
+    /**
+     * getNextEventEndTime - Get the next event end time based on the event schedule
+     */
+    function getNextEventEndTime() public view returns (uint64) {
+        uint256 dayOfWeek = (block.timestamp / 1 days + 3) % 7;
+        uint256 daysUntilNextEvent = (7 + eventEndDay - dayOfWeek) % 7;
+        return uint64((block.timestamp / 1 days + daysUntilNextEvent) * 1 days + eventEndTime);
     }
 
     /**
@@ -436,11 +445,6 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         emit MinBidIncrementUpdated(minBidIncrement_);
     }
 
-    function setAuctionDuration(uint256 auctionDuration_) external onlyOwner {
-        auctionDuration = auctionDuration_;
-        emit AuctionDurationUpdated(auctionDuration_);
-    }
-
     function setSettlementDuration(uint256 settlementDuration_) external onlyOwner {
         settlementDuration = settlementDuration_;
         emit SettlementDurationUpdated(settlementDuration_);
@@ -451,11 +455,25 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         emit AntiSnipeDurationUpdated(antiSnipeDuration_);
     }
 
-    function setEventSchedule(uint256 dayOfWeek, uint256 startTime) external onlyOwner {
-        if (dayOfWeek > 7 || startTime > 24 hours) revert InvalidEventSchedule();
-        eventDayOfWeek = dayOfWeek;
+    function setEventSchedule(
+        uint256 startDayOfWeek,
+        uint256 startTime,
+        uint256 endDayOfWeek,
+        uint256 endTime
+    ) external onlyOwner {
+        if (startDayOfWeek >= 7 || 
+            startTime >= 24 hours || 
+            endDayOfWeek >= 7 || 
+            endTime >= 24 hours) {
+            revert InvalidEventSchedule();
+        }
+        
+        eventStartDay = startDayOfWeek;
         eventStartTime = startTime;
-        emit EventScheduleUpdated(dayOfWeek, startTime);
+        eventEndDay = endDayOfWeek;
+        eventEndTime = endTime;
+
+        emit EventScheduleUpdated(startDayOfWeek, startTime, endDayOfWeek, endTime);
     }
 
     /**

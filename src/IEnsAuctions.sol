@@ -19,26 +19,31 @@ interface IEnsAuctions {
 
     function calculateFee(address sellerAddress, bool useDiscount) external view returns (uint256);
     function getAuctionTokens(uint256 auctionId) external view returns (uint256[] memory);
-    function getNextEventTime() external view returns (uint64);
+    function getNextEventStartTime() external view returns (uint64);
+    function getNextEventEndTime() external view returns (uint64);
 
     function setMaxTokens(uint256 maxTokens_) external;
     function setMinBuyNowPrice(uint256 minBuyNowPrice_) external;
     function setMinStartingBid(uint256 minStartingPrice_) external;
     function setMinBidIncrement(uint256 minBidIncrement_) external;
-    function setAuctionDuration(uint256 auctionDuration_) external;
     function setSettlementDuration(uint256 settlementDuration_) external;
     function setAntiSnipeDuration(uint256 antiSnipeDuration_) external;
-    function setEventSchedule(uint256 dayOfWeek, uint256 startTime) external;
     function setFeeCalculator(address feeCalculator_) external;
     function setFeeRecipient(address feeRecipient_) external;
+    function setEventSchedule(
+        uint256 startDayOfWeek,
+        uint256 startTime,
+        uint256 endDayOfWeek,
+        uint256 endTime
+    ) external;
 
     event Started(
         uint256 auctionId,
         address seller,
         uint256 startingPrice,
         uint256 buyNowPrice,
+        uint64 startTime,
         uint64 endTime,
-        uint64 buyNowEndTime,
         uint256 tokenCount,
         uint256[] tokenIds
     );
@@ -57,7 +62,12 @@ interface IEnsAuctions {
     event SettlementDurationUpdated(uint256 settlementDuration);
     event AntiSnipeDurationUpdated(uint256 antiSnipeDuration);
     event MaxTokensUpdated(uint256 maxTokens);
-    event EventScheduleUpdated(uint256 dayOfWeek, uint256 startTime);
+    event EventScheduleUpdated(
+        uint256 startDayOfWeek,
+        uint256 startTime,
+        uint256 endDayOfWeek,
+        uint256 endTime
+    );
     
     error AuctionBuyNowPeriod();
     error AuctionEnded();

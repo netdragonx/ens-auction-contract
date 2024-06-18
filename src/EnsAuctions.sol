@@ -85,8 +85,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     uint256 public maxTokens = 20;
     uint256 public eventStartDay = 5;
     uint256 public eventStartTime = 16 hours;
-    uint256 public eventEndDay = 5;
-    uint256 public eventEndTime = 20 hours;
+    uint256 public eventEndDay = 1;
+    uint256 public eventEndTime = 0 hours;
     
     mapping(address => Seller) public sellers;
     mapping(address => uint256) public balances;
@@ -159,9 +159,6 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         ++nextAuctionId;
         ++sellers[msg.sender].totalAuctions;
 
-        (bool success, ) = payable(feeRecipient).call{value: msg.value}("");
-        if (!success) revert TransferFailed();
-
         emit Started(
             nextAuctionId - 1,
             msg.sender,
@@ -171,6 +168,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             auction.startTime,
             tokenCount
         );
+
+        (bool success, ) = payable(feeRecipient).call{value: msg.value}("");
+        if (!success) revert TransferFailed();
     }
 
     /**
@@ -238,9 +238,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         balances[auction.seller] += auction.buyNowPrice;
         ++sellers[auction.seller].totalSold;
 
-        _transferTokens(auction);
-
         emit BuyNow(auctionId, msg.sender, auction.buyNowPrice);
+
+        _transferTokens(auction);
     }
 
     /**
@@ -264,9 +264,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         balances[auction.seller] += auction.highestBid;
         ++sellers[auction.seller].totalSold;
 
-        _transferTokens(auction);
-
         emit Claimed(auctionId, auction.highestBidder);
+
+        _transferTokens(auction);
     }
 
     /**
@@ -329,10 +329,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         balances[msg.sender] = 0;
 
+        emit Withdrawn(msg.sender, balance);
+
         (bool success, ) = payable(msg.sender).call{value: balance}("");
         if (!success) revert TransferFailed();
-
-        emit Withdrawn(msg.sender, balance);
     }
 
     /**
@@ -394,18 +394,18 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      * getNextEventStartTime - Get the next event time based on the event schedule
      */
     function getNextEventStartTime() public view returns (uint64) {
-        uint256 dayOfWeek = (block.timestamp / 1 days + 3) % 7;
+        uint256 dayOfWeek = (block.timestamp / 1 days + 4) % 7;
         uint256 daysUntilNextEvent = (7 + eventStartDay - dayOfWeek) % 7;
-        return uint64((block.timestamp / 1 days + daysUntilNextEvent) * 1 days + eventStartTime);
+        return uint64(block.timestamp + daysUntilNextEvent * 1 days + eventStartTime);
     }
 
     /**
      * getNextEventEndTime - Get the next event end time based on the event schedule
      */
     function getNextEventEndTime() public view returns (uint64) {
-        uint256 dayOfWeek = (block.timestamp / 1 days + 3) % 7;
+        uint256 dayOfWeek = (block.timestamp / 1 days + 4) % 7;
         uint256 daysUntilNextEvent = (7 + eventEndDay - dayOfWeek) % 7;
-        return uint64((block.timestamp / 1 days + daysUntilNextEvent) * 1 days + eventEndTime);
+        return uint64(block.timestamp + daysUntilNextEvent * 1 days + eventEndTime);
     }
 
     /**
@@ -499,8 +499,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             tokenOnAuction[tokenId] = true;
 
             if (wrapped[i]) {
-                (address owner, uint32 fuses, uint64 expiry) = ensNameWrapper.getData(tokenId);
-                if (owner != msg.sender) revert TokenNotOwned();
+                (address _owner, uint32 fuses, uint64 expiry) = ensNameWrapper.getData(tokenId);
+                if (_owner != msg.sender) revert TokenNotOwned();
                 if (expiry < endTime + settlementDuration) revert TokenExpired();
                 if (fuses & CANNOT_TRANSFER != 0) revert TokenNotTransferrable();
             } else {
@@ -549,13 +549,22 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         address highestBidder = auction.highestBidder;
         
         for (uint256 i; i < tokenCount; ++i) {
-            Token memory token = auction.tokens[i];
-            tokenOnAuction[token.tokenId] = false;
+            uint256 tokenId = auction.tokens[i].tokenId;
 
-            if (token.isWrapped) {
-                ensNameWrapper.safeTransferFrom(seller, highestBidder, token.tokenId, 1, "");
+            if (!tokenOnAuction[tokenId]) {
+                revert TokenNotTransferrable();
+            }
+
+            tokenOnAuction[tokenId] = false;
+        }
+
+        for (uint256 i; i < tokenCount; ++i) {
+            uint256 tokenId = auction.tokens[i].tokenId;
+
+            if (auction.tokens[i].isWrapped) {
+                ensNameWrapper.safeTransferFrom(seller, highestBidder, tokenId, 1, "");
             } else {
-                ensRegistrar.transferFrom(seller, highestBidder, token.tokenId);
+                ensRegistrar.transferFrom(seller, highestBidder, tokenId);
             }
         }
     }
@@ -600,9 +609,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
                     }
                 }
 
-                (address owner, uint32 fuses, ) = ensNameWrapper.getData(token.tokenId);
+                (address _owner, uint32 fuses, ) = ensNameWrapper.getData(token.tokenId);
 
-                if (owner != auction.seller || fuses & CANNOT_TRANSFER != 0) {
+                if (_owner != auction.seller || fuses & CANNOT_TRANSFER != 0) {
                     isClaimable = false;
                     break;
                 }

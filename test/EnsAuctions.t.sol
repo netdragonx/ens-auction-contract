@@ -1169,21 +1169,21 @@ contract EnsAuctionsTest is Test {
         uint256 user1Fee = auctions.calculateFee(user1, false);
         uint256 user1Bid = 0.05 ether;
 
-        vm.startPrank(user1);
+        vm.prank(user1);
         auctions.startAuction{value: user1Fee}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
         
-        vm.warp(auctions.getNextEventStartTime() + 1);
-
         uint256 user2Fee = auctions.calculateFee(user2, false);
         uint256 user2Bid = 0.01 ether;
 
-        vm.startPrank(user2);
-        auctions.bid{value: user2Bid}(1, user2Bid);
+        vm.prank(user2);
         auctions.startAuction{value: user2Fee}(0.02 ether, buyNowPrice, tokenIdsB, unwrapped, false);
-
+        
         vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.prank(user2);
+        auctions.bid{value: user2Bid}(1, user2Bid);
 
-        vm.startPrank(user1);
+        vm.prank(user1);
         auctions.bid{value: user1Bid}(2, user1Bid);
         
         uint256 user3BidA = 0.02 ether;
@@ -1336,4 +1336,49 @@ contract EnsAuctionsTest is Test {
         vm.expectRevert(bytes4(keccak256("Unauthorized()")));
         auctions.setFeeCalculator(address(feeCalculator));
     }
+
+    function test_getNextEventStartTime_CorrespondTo_WeeklySchedule() public {
+        auctions.setEventSchedule(5, 16 hours, 1, 0 hours);
+
+        uint256 fridayNoonEST = _calculateNextWeekdayTime(5, 16 hours); // in UTC
+        uint256 sunday8pmEST = _calculateNextWeekdayTime(1, 0 hours); // in UTC
+
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+
+        (
+            ,
+            uint64 _startTime, 
+            uint64 _endTime, 
+            , 
+            , 
+            , 
+            , 
+            ,
+        ) = auctions.auctions(1);
+
+        assertApproxEqAbs(_startTime, fridayNoonEST, 1, "Auction should start on Friday at noon EST");
+        assertApproxEqAbs(_endTime, sunday8pmEST, 1, "Auction should end on Sunday at 8 PM EST");
+
+        console.log("Friday noon EST (UTC): %d", fridayNoonEST);
+        console.log("Sunday 8pm EST (UTC): %d", sunday8pmEST);
+
+        vm.stopPrank();
+    }
+
+    function _calculateNextWeekdayTime(uint weekday, uint256 timeOfDay) internal view returns (uint256) {
+        require(timeOfDay < 1 days, "Invalid time of day");
+
+        uint256 currentTimestamp = block.timestamp;
+        uint256 currentWeekday = (currentTimestamp / 1 days + 4) % 7;
+
+        uint256 daysUntilNextWeekday = (weekday + 7 - currentWeekday) % 7;
+        if (daysUntilNextWeekday == 0 && currentTimestamp % 1 days > timeOfDay) {
+            daysUntilNextWeekday += 7;
+        }
+
+        return currentTimestamp + daysUntilNextWeekday * 1 days - (currentTimestamp % 1 days) + timeOfDay;
+    }
 }
+

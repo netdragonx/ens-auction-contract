@@ -140,6 +140,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         if (buyNowPrice < minBuyNowPrice || buyNowPrice <= startingPrice) revert BuyNowTooLow();
         if (tokenCount == 0 || tokenCount != wrapped.length) revert InvalidLengthOfTokenIds();
 
+        uint64 _eventStartTime = getNextEventStartTime();
         uint64 _eventEndTime = getNextEventEndTime();
 
         _validateTokens(tokenIds, wrapped, _eventEndTime);
@@ -148,7 +149,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         auction.seller = msg.sender;
         auction.tokenCount = tokenCount;
         auction.buyNowPrice = buyNowPrice;
-        auction.startTime = getNextEventStartTime();
+        auction.startTime = _eventStartTime;
         auction.endTime = _eventEndTime;
         auction.startingPrice = startingPrice;
 
@@ -390,22 +391,30 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         return tokenIds;
     }
 
-    /**
-     * getNextEventStartTime - Get the next event time based on the event schedule
-     */
     function getNextEventStartTime() public view returns (uint64) {
-        uint256 dayOfWeek = (block.timestamp / 1 days + 4) % 7;
-        uint256 daysUntilNextEvent = (7 + eventStartDay - dayOfWeek) % 7;
-        return uint64(block.timestamp + daysUntilNextEvent * 1 days + eventStartTime);
+        return _getEventTime(eventStartDay, eventStartTime);
     }
 
-    /**
-     * getNextEventEndTime - Get the next event end time based on the event schedule
-     */
     function getNextEventEndTime() public view returns (uint64) {
-        uint256 dayOfWeek = (block.timestamp / 1 days + 4) % 7;
-        uint256 daysUntilNextEvent = (7 + eventEndDay - dayOfWeek) % 7;
-        return uint64(block.timestamp + daysUntilNextEvent * 1 days + eventEndTime);
+        uint64 startTime = _getEventTime(eventStartDay, eventStartTime);
+        uint64 endTime = _getEventTime(eventEndDay, eventEndTime);
+
+        if (startTime >= endTime) {
+            endTime += 7 days;
+        }
+
+        return endTime;
+    }
+
+    function _getEventTime(uint256 dayOfWeek, uint256 time) internal view returns (uint64) {
+        uint256 daysUntilNextEvent = (7 + dayOfWeek - (block.timestamp / 1 days + 4) % 7) % 7;
+        uint256 nextEventTime = (block.timestamp / 1 days + daysUntilNextEvent) * 1 days + time;
+
+        if (daysUntilNextEvent == 0 && block.timestamp % 1 days > time) {
+            nextEventTime += 7 days;
+        }
+
+        return uint64(nextEventTime);
     }
 
     /**
@@ -649,3 +658,4 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         }
     }
 }
+

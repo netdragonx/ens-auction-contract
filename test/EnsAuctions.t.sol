@@ -447,7 +447,10 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user2);
         auctions.bid(2, 0.24 ether);
         
-        (,,,, address highestBidder3, uint256 highestBid3,,,) = auctions.auctions(2);
+        (,uint64 startTime,uint64 endTime,, address highestBidder3, uint256 highestBid3,,,) = auctions.auctions(2);
+        console.log("startTime", startTime);
+        console.log("endTime", endTime);
+        console.log("current time", block.timestamp);
         assertEq(highestBid3, 0.24 ether);
         assertEq(highestBidder3, user2);
         assertEq(user2.balance, 0.5 ether);
@@ -843,12 +846,16 @@ contract EnsAuctionsTest is Test {
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        uint64 nextEventStartTime = auctions.getNextEventStartTime();
+        uint64 nextEventEndTime = auctions.getNextEventEndTime();
+
+        vm.warp(nextEventStartTime + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
 
-        vm.warp(auctions.getNextEventEndTime() + 1);
+        vm.warp(nextEventEndTime + 1);
 
         vm.startPrank(user1);
         vm.expectRevert(bytes4(keccak256("SettlementPeriodNotExpired()")));
@@ -860,10 +867,13 @@ contract EnsAuctionsTest is Test {
     //
     function test_markUnclaimable_Success_SellerMovesTokens() public {
         uint256 auctionId = auctions.nextAuctionId();
+        uint64 nextEventStartTime = auctions.getNextEventStartTime();
+        uint64 nextEventEndTime = auctions.getNextEventEndTime();
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.warp(nextEventStartTime + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -872,7 +882,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user1);
         mockRegistrar.transferFrom(user1, user3, tokenIds[0]);
 
-        vm.warp(auctions.getNextEventEndTime() + 1);
+        vm.warp(nextEventEndTime + 1);
 
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
@@ -886,10 +896,13 @@ contract EnsAuctionsTest is Test {
 
     function test_markUnclaimable_Success_SellerMovesTokens_Wrapped() public {
         uint256 auctionId = auctions.nextAuctionId();
+        uint64 nextEventStartTime = auctions.getNextEventStartTime();
+        uint64 nextEventEndTime = auctions.getNextEventEndTime();
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.warp(nextEventStartTime + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -898,7 +911,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user1);
         mockNameWrapper.safeTransferFrom(user1, user3, tokenIds[0], 1, "");
 
-        vm.warp(auctions.getNextEventEndTime() + 1);
+        vm.warp(nextEventEndTime + 1);
 
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
@@ -912,10 +925,13 @@ contract EnsAuctionsTest is Test {
 
     function test_markUnclaimable_Success_SellerRemovesApprovalForAll() public {
         uint256 auctionId = auctions.nextAuctionId();
+        uint64 nextEventStartTime = auctions.getNextEventStartTime();
+        uint64 nextEventEndTime = auctions.getNextEventEndTime();
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.warp(nextEventStartTime + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -924,7 +940,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user1);
         mockRegistrar.setApprovalForAll(address(auctions), false);
         
-        vm.warp(auctions.getNextEventEndTime() + 1);
+        vm.warp(nextEventEndTime + 1);
 
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
@@ -938,10 +954,13 @@ contract EnsAuctionsTest is Test {
 
     function test_markUnclaimable_Success_SellerRemovesApprovalForAll_Wrapped() public {
         uint256 auctionId = auctions.nextAuctionId();
+        uint64 nextEventStartTime = auctions.getNextEventStartTime();
+        uint64 nextEventEndTime = auctions.getNextEventEndTime();
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.warp(nextEventStartTime + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -950,7 +969,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user1);
         mockNameWrapper.setApprovalForAll(address(auctions), false);
         
-        vm.warp(auctions.getNextEventEndTime() + 1);
+        vm.warp(nextEventEndTime + 1);
 
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
@@ -964,6 +983,9 @@ contract EnsAuctionsTest is Test {
 
     function test_markUnclaimable_Success_SellerRemovesApprovalForOne() public {
         uint256 auctionId = auctions.nextAuctionId();
+        uint64 nextEventStartTime = auctions.getNextEventStartTime();
+        uint64 nextEventEndTime = auctions.getNextEventEndTime();
+
 
         vm.startPrank(user1);
         mockRegistrar.setApprovalForAll(address(auctions), false);
@@ -971,7 +993,8 @@ contract EnsAuctionsTest is Test {
         mockRegistrar.approve(address(auctions), tokenIds[1]);
         mockRegistrar.approve(address(auctions), tokenIds[2]);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.warp(nextEventStartTime + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -980,7 +1003,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user1);
         mockRegistrar.approve(address(0), tokenIds[0]);
         
-        vm.warp(auctions.getNextEventEndTime() + 1);
+        vm.warp(nextEventEndTime + 1);
 
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
@@ -994,10 +1017,13 @@ contract EnsAuctionsTest is Test {
 
     function test_markUnclaimable_Success_SellerBurnsFusesOnWrappedName() public {
         uint256 auctionId = auctions.nextAuctionId();
+        uint64 nextEventStartTime = auctions.getNextEventStartTime();
+        uint64 nextEventEndTime = auctions.getNextEventEndTime();
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.warp(nextEventStartTime + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
@@ -1006,7 +1032,7 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user1);
         mockNameWrapper.setFuses(CANNOT_TRANSFER);
 
-        vm.warp(auctions.getNextEventEndTime() + 1);
+        vm.warp(nextEventEndTime + 1);
 
         vm.startPrank(user2);
         auctions.markUnclaimable(auctionId);
@@ -1020,14 +1046,18 @@ contract EnsAuctionsTest is Test {
 
     function test_markUnclaimable_RevertIf_AuctionIsClaimable() public {
         uint256 auctionId = auctions.nextAuctionId();
+        uint64 nextEventStartTime = auctions.getNextEventStartTime();
+        uint64 nextEventEndTime = auctions.getNextEventEndTime();
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.warp(nextEventStartTime + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
-        vm.warp(auctions.getNextEventEndTime() + 1);
+        
+        vm.warp(nextEventEndTime + 1);
 
         vm.expectRevert(bytes4(keccak256("AuctionIsClaimable()")));
         auctions.markUnclaimable(auctionId);
@@ -1035,14 +1065,18 @@ contract EnsAuctionsTest is Test {
 
     function test_markUnclaimable_RevertIf_AuctionIsClaimable_Wrapped() public {
         uint256 auctionId = auctions.nextAuctionId();
+        uint64 nextEventStartTime = auctions.getNextEventStartTime();
+        uint64 nextEventEndTime = auctions.getNextEventEndTime();
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.warp(nextEventStartTime + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
-        vm.warp(auctions.getNextEventEndTime() + 1);
+        
+        vm.warp(nextEventEndTime + 1);
 
         vm.expectRevert(bytes4(keccak256("AuctionIsClaimable()")));
         auctions.markUnclaimable(auctionId);
@@ -1108,14 +1142,18 @@ contract EnsAuctionsTest is Test {
 
     function test_markUnclaimable_RevertIf_NotHighestBidder() public {
         uint256 auctionId = auctions.nextAuctionId();
+        uint64 nextEventStartTime = auctions.getNextEventStartTime();
+        uint64 nextEventEndTime = auctions.getNextEventEndTime();
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.warp(nextEventStartTime + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
-        vm.warp(auctions.getNextEventEndTime() + 1);
+        
+        vm.warp(nextEventEndTime + 1);
 
         vm.startPrank(user3);
         vm.expectRevert(bytes4(keccak256("NotHighestBidder()")));
@@ -1124,14 +1162,18 @@ contract EnsAuctionsTest is Test {
 
     function test_markUnclaimable_RevertIf_NotHighestBidder_Wrapped() public {
         uint256 auctionId = auctions.nextAuctionId();
+        uint64 nextEventStartTime = auctions.getNextEventStartTime();
+        uint64 nextEventEndTime = auctions.getNextEventEndTime();
 
         vm.startPrank(user1);
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.warp(nextEventStartTime + 1);
 
         vm.startPrank(user2);
         auctions.bid{value: startingPrice}(auctionId, startingPrice);
-        vm.warp(auctions.getNextEventEndTime() + 1);
+        
+        vm.warp(nextEventEndTime + 1);
 
         vm.startPrank(user3);
         vm.expectRevert(bytes4(keccak256("NotHighestBidder()")));
@@ -1335,6 +1377,40 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(vm.addr(69));
         vm.expectRevert(bytes4(keccak256("Unauthorized()")));
         auctions.setFeeCalculator(address(feeCalculator));
+    }
+
+    function test_getNextEventStartTime_Success() public {
+        auctions.setEventSchedule(5, 16 hours, 1, 0 hours);
+
+        uint64 beforeEventA = 1717689600;
+        uint64 duringEventA = 1718013600;
+        uint64 beforeEventB = 1718272800;
+        uint64 duringEventB = 1718445600;
+
+        uint64 eventAStartTime = 1717776000;
+        uint64 eventAEndTime = 1717977600;
+        uint64 eventBStartTime = 1718380800;
+        uint64 eventBEndTime = 1718582400;
+
+        vm.warp(beforeEventA);
+
+        assertEq(auctions.getNextEventStartTime(), eventAStartTime, "Next event should be event A start time");
+        assertEq(auctions.getNextEventEndTime(), eventAEndTime, "Next event should be event A end time");
+        
+        vm.warp(duringEventA);
+
+        assertEq(auctions.getNextEventStartTime(), eventBStartTime, "Next event should be event B start time");
+        assertEq(auctions.getNextEventEndTime(), eventBEndTime, "Next event should be event B end time");
+        
+        vm.warp(beforeEventB);
+
+        assertEq(auctions.getNextEventStartTime(), eventBStartTime, "Next event should be event B start time");
+        assertEq(auctions.getNextEventEndTime(), eventBEndTime, "Next event should be event B end time");
+
+        vm.warp(duringEventB);
+
+        assertEq(auctions.getNextEventStartTime(), eventBStartTime + 604800, "Next event should be event B start time");
+        assertEq(auctions.getNextEventEndTime(), eventBEndTime + 604800, "Next event should be event B end time");
     }
 
     function test_getNextEventStartTime_CorrespondTo_WeeklySchedule() public {

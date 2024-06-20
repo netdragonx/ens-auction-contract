@@ -447,10 +447,8 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user2);
         auctions.bid(2, 0.24 ether);
         
-        (,uint64 startTime,uint64 endTime,, address highestBidder3, uint256 highestBid3,,,) = auctions.auctions(2);
-        console.log("startTime", startTime);
-        console.log("endTime", endTime);
-        console.log("current time", block.timestamp);
+        (,,,, address highestBidder3, uint256 highestBid3,,,) = auctions.auctions(2);
+
         assertEq(highestBid3, 0.24 ether);
         assertEq(highestBidder3, user2);
         assertEq(user2.balance, 0.5 ether);
@@ -1436,9 +1434,6 @@ contract EnsAuctionsTest is Test {
 
         assertApproxEqAbs(_startTime, fridayNoonEST, 1, "Auction should start on Friday at noon EST");
         assertApproxEqAbs(_endTime, sunday8pmEST, 1, "Auction should end on Sunday at 8 PM EST");
-
-        console.log("Friday noon EST (UTC): %d", fridayNoonEST);
-        console.log("Sunday 8pm EST (UTC): %d", sunday8pmEST);
 
         vm.stopPrank();
     }

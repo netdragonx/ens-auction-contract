@@ -165,8 +165,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             msg.sender,
             startingPrice,
             buyNowPrice,
-            auction.endTime,
             auction.startTime,
+            auction.endTime,
             tokenCount
         );
 

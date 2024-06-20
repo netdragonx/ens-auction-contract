@@ -43,7 +43,7 @@ testnet() {
         exit 1
     fi
 
-    forge script script/Deploy.s.sol:DeployScript \
+    forge script script/DeployTestnet.s.sol:DeployTestnetScript \
         -vvvv \
         --rpc-url "$rpcUrl" \
         --optimize \

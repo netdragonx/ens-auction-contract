@@ -557,15 +557,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         uint256 tokenCount = auction.tokenCount;
         address highestBidder = auction.highestBidder;
         
-        for (uint256 i; i < tokenCount; ++i) {
-            uint256 tokenId = auction.tokens[i].tokenId;
-
-            if (!tokenOnAuction[tokenId]) {
-                revert TokenNotTransferrable();
-            }
-
-            tokenOnAuction[tokenId] = false;
-        }
+        _resetTokens(auction);
 
         for (uint256 i; i < tokenCount; ++i) {
             uint256 tokenId = auction.tokens[i].tokenId;
@@ -595,27 +587,30 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     }
 
     /**
-     * _isClaimable - Checks if an auction is claimable
+     * _isClaimable - Internal check if an auction is claimable in case user c
      *
      * @param auction - The auction to check
      *
      */
     function _isClaimable(Auction storage auction) internal view returns (bool) {
         bool isClaimable = true;
-        bool hasWrapped = false;
-        bool hasUnwrapped = false;
+        bool isApprovedForAllWrapped = false;
+        bool isApprovedForAllUnwrapped = false;
+        bool checkApprovedForAllWrapped = false;
+        bool checkApprovedForAllUnwrapped = false;
 
         for (uint256 i; i < auction.tokenCount; ++i) {
             Token memory token = auction.tokens[i];
 
             if (token.isWrapped) {
-                if (!hasWrapped) {
-                    hasWrapped = true;
-                    
-                    if (!ensNameWrapper.isApprovedForAll(auction.seller, address(this))) {
-                        isClaimable = false;
-                        break;
-                    }
+                if (!checkApprovedForAllWrapped) {
+                    checkApprovedForAllWrapped = true;
+                    isApprovedForAllWrapped = ensNameWrapper.isApprovedForAll(auction.seller, address(this));
+                }
+
+                if (!isApprovedForAllWrapped && ensNameWrapper.getApproved(token.tokenId) != address(this)) {
+                    isClaimable = false;
+                    break;
                 }
 
                 (address _owner, uint32 fuses, ) = ensNameWrapper.getData(token.tokenId);
@@ -625,13 +620,14 @@ contract EnsAuctions is IEnsAuctions, Ownable {
                     break;
                 }
             } else {
-                if (!hasUnwrapped) {
-                    hasUnwrapped = true;
+                if (!checkApprovedForAllUnwrapped) {
+                    checkApprovedForAllUnwrapped = true;
+                    isApprovedForAllUnwrapped = ensRegistrar.isApprovedForAll(auction.seller, address(this));
+                }
 
-                    if (!ensRegistrar.isApprovedForAll(auction.seller, address(this))) {
-                        isClaimable = false;
-                        break;
-                    }
+                if (!isApprovedForAllUnwrapped && ensRegistrar.getApproved(token.tokenId) != address(this)) {
+                    isClaimable = false;
+                    break;
                 }
 
                 if (ensRegistrar.ownerOf(token.tokenId) != auction.seller) {

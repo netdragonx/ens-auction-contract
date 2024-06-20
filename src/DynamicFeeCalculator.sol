@@ -65,13 +65,13 @@ contract DynamicFeeCalculator is IFeeCalculator, Ownable {
     function _isEligibleForDiscount(Discount memory discount, address seller) internal view returns (bool) {
         if (TokenType.ERC721 == discount.tokenType) {
             return IERC721(discount.tokenAddress).balanceOf(seller) > 0;
-        } else if (TokenType.ERC1155 == discount.tokenType) {
+        }
+        
+        if (TokenType.ERC1155 == discount.tokenType) {
             return IERC1155(discount.tokenAddress).balanceOf(seller, discount.tokenId) > discount.threshold;
-        } else if (TokenType.ERC20 == discount.tokenType) {
-            return IERC20(discount.tokenAddress).balanceOf(seller) > discount.threshold;
         }
 
-        return false;
+        return IERC20(discount.tokenAddress).balanceOf(seller) > discount.threshold;
     }
 
     function addDiscounts(Discount[] calldata newDiscounts) external onlyOwner {

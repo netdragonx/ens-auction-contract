@@ -3,12 +3,16 @@ pragma solidity ^0.8.25;
 
 import "forge-std/Test.sol";
 import "./lib/Mock20.sol";
+import "./lib/Mock721.sol";
+import "./lib/Mock1155.sol";
 import "../src/DynamicFeeCalculator.sol";
 
 contract FeeCalculatorTest is Test {
     DynamicFeeCalculator public feeCalculator;
     Mock20 public mock20;
-    
+    Mock721 public mock721;
+    Mock1155 public mock1155;
+
     address public feeRecipient;
     address public user1;
     address public user2;
@@ -21,6 +25,8 @@ contract FeeCalculatorTest is Test {
         feeRecipient = vm.addr(100);
         feeCalculator = new DynamicFeeCalculator();
         mock20 = new Mock20();
+        mock721 = new Mock721();
+        mock1155 = new Mock1155();
 
         user1 = vm.addr(1);
         user2 = vm.addr(2);
@@ -32,7 +38,8 @@ contract FeeCalculatorTest is Test {
     }
 
     function test_calculateFee_WithoutDiscount() public {
-        DynamicFeeCalculator.Discount[] memory newDiscounts = new DynamicFeeCalculator.Discount[](1);
+        DynamicFeeCalculator.Discount[]
+            memory newDiscounts = new DynamicFeeCalculator.Discount[](1);
 
         newDiscounts[0] = DynamicFeeCalculator.Discount({
             tokenType: DynamicFeeCalculator.TokenType.ERC20,
@@ -51,26 +58,28 @@ contract FeeCalculatorTest is Test {
         uint24 soldCount = 3;
         uint24 unclaimableCount = 1;
         uint24 abandonedCount = 1;
-        
+
         uint256 fee = feeCalculator.calculateFee(
-            totalAuctionCount, 
-            user1, 
-            auctionCount, 
-            soldCount, 
-            unclaimableCount, 
-            abandonedCount, 
+            totalAuctionCount,
+            user1,
+            auctionCount,
+            soldCount,
+            unclaimableCount,
+            abandonedCount,
             false
         );
 
         uint256 expectedFee = ((feeCalculator.baseFee() * totalAuctionCount) +
-            (feeCalculator.linearFee() * (auctionCount - soldCount - abandonedCount)) +
+            (feeCalculator.linearFee() *
+                (auctionCount - soldCount - abandonedCount)) +
             (feeCalculator.penaltyFee() * unclaimableCount));
 
         assertEq(fee, expectedFee);
     }
 
     function test_calculateFee_WithDiscount() public {
-        DynamicFeeCalculator.Discount[] memory newDiscounts = new DynamicFeeCalculator.Discount[](1);
+        DynamicFeeCalculator.Discount[]
+            memory newDiscounts = new DynamicFeeCalculator.Discount[](1);
 
         uint256 discount = 10;
 
@@ -91,20 +100,105 @@ contract FeeCalculatorTest is Test {
         uint24 soldCount = 3;
         uint24 unclaimableCount = 1;
         uint24 abandonedCount = 1;
-        
+
         uint256 fee = feeCalculator.calculateFee(
-            totalAuctionCount, 
-            user1, 
-            auctionCount, 
-            soldCount, 
-            unclaimableCount, 
-            abandonedCount, 
+            totalAuctionCount,
+            user1,
+            auctionCount,
+            soldCount,
+            unclaimableCount,
+            abandonedCount,
             true
         );
 
-        uint256 expectedFee = ((feeCalculator.baseFee() * totalAuctionCount) +
-            (feeCalculator.linearFee() * (auctionCount - soldCount - abandonedCount)) +
-            (feeCalculator.penaltyFee() * unclaimableCount)) * discount / 100;
+        uint256 expectedFee = (((feeCalculator.baseFee() * totalAuctionCount) +
+            (feeCalculator.linearFee() *
+                (auctionCount - soldCount - abandonedCount)) +
+            (feeCalculator.penaltyFee() * unclaimableCount)) * discount) / 100;
+
+        assertEq(fee, expectedFee);
+    }
+
+    function test_calculateFee_WithERC721Discount() public {
+        DynamicFeeCalculator.Discount[]
+            memory newDiscounts = new DynamicFeeCalculator.Discount[](1);
+
+        uint256 discount = 15;
+
+        newDiscounts[0] = DynamicFeeCalculator.Discount({
+            tokenType: DynamicFeeCalculator.TokenType.ERC721,
+            tokenAddress: address(mock721),
+            tokenId: 1,
+            threshold: 1,
+            discount: discount
+        });
+
+        feeCalculator.addDiscounts(newDiscounts);
+
+        mock721.mint(user1, 1);
+
+        uint256 totalAuctionCount = 10;
+        uint24 auctionCount = 5;
+        uint24 soldCount = 3;
+        uint24 unclaimableCount = 1;
+        uint24 abandonedCount = 1;
+
+        uint256 fee = feeCalculator.calculateFee(
+            totalAuctionCount,
+            user1,
+            auctionCount,
+            soldCount,
+            unclaimableCount,
+            abandonedCount,
+            true
+        );
+
+        uint256 expectedFee = (((feeCalculator.baseFee() * totalAuctionCount) +
+            (feeCalculator.linearFee() *
+                (auctionCount - soldCount - abandonedCount)) +
+            (feeCalculator.penaltyFee() * unclaimableCount)) * discount) / 100;
+
+        assertEq(fee, expectedFee);
+    }
+
+    function test_calculateFee_WithERC1155Discount() public {
+        DynamicFeeCalculator.Discount[]
+            memory newDiscounts = new DynamicFeeCalculator.Discount[](1);
+
+        uint256 discount = 20;
+
+        newDiscounts[0] = DynamicFeeCalculator.Discount({
+            tokenType: DynamicFeeCalculator.TokenType.ERC1155,
+            tokenAddress: address(mock1155),
+            tokenId: 1,
+            threshold: 50,
+            discount: discount
+        });
+
+        feeCalculator.addDiscounts(newDiscounts);
+
+        mock1155.mint(user1, 1, 100, "");
+
+        uint256 totalAuctionCount = 10;
+        uint24 auctionCount = 5;
+        uint24 soldCount = 3;
+        uint24 unclaimableCount = 1;
+        uint24 abandonedCount = 1;
+
+        uint256 fee = feeCalculator.calculateFee(
+            totalAuctionCount,
+            user1,
+            auctionCount,
+            soldCount,
+            unclaimableCount,
+            abandonedCount,
+            true
+        );
+
+        uint256 expectedFee = (((feeCalculator.baseFee() * totalAuctionCount) +
+            (feeCalculator.linearFee() *
+                (auctionCount - soldCount - abandonedCount)) +
+            (feeCalculator.penaltyFee() * unclaimableCount)) * discount) / 100;
 
         assertEq(fee, expectedFee);
     }
@@ -142,7 +236,8 @@ contract FeeCalculatorTest is Test {
     }
 
     function test_addDiscounts_Success() public {
-        DynamicFeeCalculator.Discount[] memory newDiscounts = new DynamicFeeCalculator.Discount[](1);
+        DynamicFeeCalculator.Discount[]
+            memory newDiscounts = new DynamicFeeCalculator.Discount[](1);
 
         newDiscounts[0] = DynamicFeeCalculator.Discount({
             tokenType: DynamicFeeCalculator.TokenType.ERC20,
@@ -170,7 +265,8 @@ contract FeeCalculatorTest is Test {
     }
 
     function test_clearDiscounts_Success() public {
-        DynamicFeeCalculator.Discount[] memory newDiscounts = new DynamicFeeCalculator.Discount[](1);
+        DynamicFeeCalculator.Discount[]
+            memory newDiscounts = new DynamicFeeCalculator.Discount[](1);
 
         newDiscounts[0] = DynamicFeeCalculator.Discount({
             tokenType: DynamicFeeCalculator.TokenType.ERC20,
@@ -182,10 +278,10 @@ contract FeeCalculatorTest is Test {
 
         feeCalculator.addDiscounts(newDiscounts);
         feeCalculator.discounts(0);
-        
+
         feeCalculator.clearDiscounts();
 
         vm.expectRevert();
         feeCalculator.discounts(0);
-    }   
+    }
 }

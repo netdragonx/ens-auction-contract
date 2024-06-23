@@ -83,46 +83,6 @@ contract EnsAuctionsTest is Test {
     }
 
     //
-    // Exploit 
-    //
-
-    /// @dev Because Active is the default status it's possible for malicious users to brick future auctions with the claim function
-    function testClaimFutureAuction() public {
-        assertEq(auctions.nextAuctionId(), 1);
-
-        auctions.claim(1);
-        auctions.claim(2);
-
-        (EnsAuctions.Status status,,,,,,,,) = auctions.auctions(1);
-        assert(status == EnsAuctions.Status.Claimed);
-        (status,,,,,,,,) = auctions.auctions(2);
-        assert(status == EnsAuctions.Status.Claimed);
-
-        vm.startPrank(user1);
-        auctions.startAuction{value: auctions.calculateFee(user1, false)}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
-        vm.warp(auctions.getNextEventStartTime() + 1);
-
-        vm.stopPrank();
-        vm.startPrank(user2);
-
-        /// Auction bricked and prevented from ending via an expected path
-        vm.expectRevert(bytes4(keccak256("InvalidStatus()")));
-        auctions.bid{value: 0.01 ether}(1, 0.01 ether);
-
-        vm.stopPrank();
-        vm.startPrank(user1);
-
-        uint256 fee = auctions.calculateFee(user1, false);
-
-        /// This breaks internal accounting logic given that _resetTokens() is prevented from being called again for the relevant tokenIds
-        /// This permanently prevents the tokenIds from being auctioned in the future
-        assertEq(auctions.tokenOnAuction(tokenIds[0]), true);
-        vm.expectRevert(bytes4(keccak256("TokenAlreadyInAuction()")));
-        auctions.startAuction{value: fee}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
-        vm.stopPrank();
-    }
-
-    //
     // startAuction()
     //
     function test_startAuction_Success() public {
@@ -850,7 +810,7 @@ contract EnsAuctionsTest is Test {
         auctions.markAbandoned(auctionId);
     }
 
-    function test_markAbandoned_RevertIf_AuctionHadNoBids() public {
+    function test_markAbandoned_RevertIf_AuctionHasNoBids() public {
         uint256 auctionId = auctions.nextAuctionId();
 
         vm.startPrank(user1);
@@ -858,7 +818,7 @@ contract EnsAuctionsTest is Test {
 
         vm.warp(auctions.getNextEventEndTime() + auctions.settlementDuration() + 1);
         
-        vm.expectRevert(bytes4(keccak256("AuctionHadNoBids()")));
+        vm.expectRevert(bytes4(keccak256("AuctionHasNoBids()")));
         auctions.markAbandoned(auctionId);
     }
 
@@ -1490,6 +1450,48 @@ contract EnsAuctionsTest is Test {
         }
 
         return currentTimestamp + daysUntilNextWeekday * 1 days - (currentTimestamp % 1 days) + timeOfDay;
+    }
+
+    //
+    // Exploits
+    //
+
+    /// @dev Because Active is the default status it's possible for malicious users to brick future auctions with the claim function
+    /// @custom:author 0xCooki (https://github.com/0xCooki)
+    /// @custom:pr https://github.com/netdragonx/ens-auction-contract/pull/1
+    function testFail_ClaimFutureAuction() public {
+        assertEq(auctions.nextAuctionId(), 1);
+
+        auctions.claim(1);
+        auctions.claim(2);
+
+        (EnsAuctions.Status status,,,,,,,,) = auctions.auctions(1);
+        assert(status == EnsAuctions.Status.Claimed);
+        (status,,,,,,,,) = auctions.auctions(2);
+        assert(status == EnsAuctions.Status.Claimed);
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
+        vm.warp(auctions.getNextEventStartTime() + 1);
+
+        vm.stopPrank();
+        vm.startPrank(user2);
+
+        /// Auction bricked and prevented from ending via an expected path
+        vm.expectRevert(bytes4(keccak256("InvalidStatus()")));
+        auctions.bid{value: 0.01 ether}(1, 0.01 ether);
+
+        vm.stopPrank();
+        vm.startPrank(user1);
+
+        uint256 fee = auctions.calculateFee(user1, false);
+
+        /// This breaks internal accounting logic given that _resetTokens() is prevented from being called again for the relevant tokenIds
+        /// This permanently prevents the tokenIds from being auctioned in the future
+        assertEq(auctions.tokenOnAuction(tokenIds[0]), true);
+        vm.expectRevert(bytes4(keccak256("TokenAlreadyInAuction()")));
+        auctions.startAuction{value: fee}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
+        vm.stopPrank();
     }
 }
 

@@ -230,7 +230,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         if (auction.status != Status.Active) revert InvalidStatus();
         if (block.timestamp > auction.startTime) revert BuyNowUnavailable();
         if (msg.sender == auction.seller) revert SellerCannotBid();
-        
+
         _processPayment(auction.buyNowPrice);
         
         auction.status = Status.BuyNow;
@@ -251,16 +251,14 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      *
      * @param auctionId - The id of the auction to claim
      *
-     * note: anyone can call the claim function, and we save some gas by not 
-     * checking if auction has any bids. ERC721/1155 will revert for transfer
-     * attempts to address(0).
      */
     function claim(uint256 auctionId) external {
         Auction storage auction = auctions[auctionId];
 
         if (auction.status != Status.Active) revert InvalidStatus();
         if (block.timestamp < auction.endTime) revert AuctionNotEnded();
-
+        if (auction.highestBidder == address(0)) revert AuctionHasNoBids();
+        
         auction.status = Status.Claimed;
 
         balances[auction.seller] += auction.highestBid;
@@ -284,7 +282,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         if (auction.status != Status.Active) revert InvalidStatus();
         if (msg.sender != auction.seller) revert NotAuthorized();
         if (block.timestamp < auction.endTime + settlementDuration) revert SettlementPeriodNotExpired();
-        if (auction.highestBidder == address(0)) revert AuctionHadNoBids();
+        if (auction.highestBidder == address(0)) revert AuctionHasNoBids();
 
         auction.status = Status.Abandoned;
 

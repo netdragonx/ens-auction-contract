@@ -70,7 +70,7 @@ interface IEnsAuctions {
     
     error AuctionBuyNowPeriod();
     error AuctionEnded();
-    error AuctionHadNoBids();
+    error AuctionHasNoBids();
     error AuctionIsClaimable();
     error AuctionNotEnded();
     error BidTooLow();

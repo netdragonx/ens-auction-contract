@@ -229,7 +229,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         if (auction.status != Status.Active) revert InvalidStatus();
         if (block.timestamp > auction.startTime) revert BuyNowUnavailable();
-
+        if (msg.sender == auction.seller) revert SellerCannotBid();
+        
         _processPayment(auction.buyNowPrice);
         
         auction.status = Status.BuyNow;

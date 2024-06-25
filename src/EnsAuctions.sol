@@ -157,11 +157,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             auction.tokens[i] = Token(tokenIds[i], wrapped[i]);
         }
 
-        ++nextAuctionId;
-        ++sellers[msg.sender].totalAuctions;
-
         emit Started(
-            nextAuctionId - 1,
+            nextAuctionId,
             msg.sender,
             startingPrice,
             buyNowPrice,
@@ -169,6 +166,11 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             auction.endTime,
             tokenCount
         );
+
+        unchecked {
+            ++nextAuctionId;
+            ++sellers[msg.sender].totalAuctions;
+        }
 
         (bool success, ) = payable(feeRecipient).call{value: msg.value}("");
         if (!success) revert TransferFailed();
@@ -197,7 +199,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         if (auction.highestBid == 0) {
             minimumBid = auction.startingPrice;
         } else {
-            minimumBid = auction.highestBid + minBidIncrement;
+            unchecked {
+                minimumBid = auction.highestBid + minBidIncrement;
+            }
         }
 
         if (bidAmount < minimumBid) revert BidTooLow();
@@ -211,7 +215,9 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         auction.highestBid = bidAmount;
 
         if (prevHighestBidder != address(0)) {
-            balances[prevHighestBidder] += prevHighestBid;
+            unchecked {
+                balances[prevHighestBidder] += prevHighestBid;
+            }
         }
 
         emit Bid(auctionId, msg.sender, bidAmount);
@@ -237,8 +243,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         auction.highestBidder = msg.sender;
         auction.highestBid = auction.buyNowPrice;
 
-        balances[auction.seller] += auction.buyNowPrice;
-        ++sellers[auction.seller].totalSold;
+        unchecked {
+            balances[auction.seller] += auction.buyNowPrice;
+            ++sellers[auction.seller].totalSold;
+        }
 
         emit BuyNow(auctionId, msg.sender, auction.buyNowPrice);
 
@@ -261,8 +269,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         
         auction.status = Status.Claimed;
 
-        balances[auction.seller] += auction.highestBid;
-        ++sellers[auction.seller].totalSold;
+        unchecked {
+            balances[auction.seller] += auction.highestBid;
+            ++sellers[auction.seller].totalSold;
+        }
 
         emit Claimed(auctionId, auction.highestBidder);
 
@@ -286,8 +296,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         auction.status = Status.Abandoned;
 
-        balances[auction.highestBidder] += auction.highestBid;
-        ++sellers[auction.seller].totalBidderAbandoned;
+        unchecked {
+            balances[auction.highestBidder] += auction.highestBid;
+            ++sellers[auction.seller].totalBidderAbandoned;
+        }
 
         _resetTokens(auction);
 
@@ -311,8 +323,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         auction.status = Status.Unclaimable;
 
-        balances[auction.highestBidder] += auction.highestBid;
-        ++sellers[auction.seller].totalUnclaimable;
+        unchecked {
+            balances[auction.highestBidder] += auction.highestBid;
+            ++sellers[auction.seller].totalUnclaimable;
+        }
         
         _resetTokens(auction);
 
@@ -406,11 +420,16 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     }
 
     function _getEventTime(uint256 dayOfWeek, uint256 time) internal view returns (uint64) {
-        uint256 daysUntilNextEvent = (7 + dayOfWeek - (block.timestamp / 1 days + 4) % 7) % 7;
-        uint256 nextEventTime = (block.timestamp / 1 days + daysUntilNextEvent) * 1 days + time;
+        uint256 daysUntilNextEvent;
+        uint256 nextEventTime;
 
-        if (daysUntilNextEvent == 0 && block.timestamp % 1 days > time) {
-            nextEventTime += 7 days;
+        unchecked {
+            daysUntilNextEvent = (7 + dayOfWeek - (block.timestamp / 1 days + 4) % 7) % 7;
+            nextEventTime = (block.timestamp / 1 days + daysUntilNextEvent) * 1 days + time;
+
+            if (daysUntilNextEvent == 0 && block.timestamp % 1 days > time) {
+                nextEventTime += 7 days;
+            }
         }
 
         return uint64(nextEventTime);
@@ -499,7 +518,10 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      *
      */
     function _validateTokens(uint256[] calldata tokenIds, bool[] calldata wrapped, uint64 endTime) internal {
-        for (uint256 i; i < tokenIds.length; ++i) {
+        uint256 length = tokenIds.length;
+        uint64 minExpiry = uint64(endTime + settlementDuration);
+
+        for (uint256 i; i < length; ++i) {
             uint256 tokenId = tokenIds[i];
 
             if (tokenOnAuction[tokenId]) revert TokenAlreadyInAuction();
@@ -509,11 +531,11 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             if (wrapped[i]) {
                 (address _owner, uint32 fuses, uint64 expiry) = ensNameWrapper.getData(tokenId);
                 if (_owner != msg.sender) revert TokenNotOwned();
-                if (expiry < endTime + settlementDuration) revert TokenExpired();
+                if (expiry < minExpiry) revert TokenExpired();
                 if (fuses & CANNOT_TRANSFER != 0) revert TokenNotTransferrable();
             } else {
                 if (ensRegistrar.ownerOf(tokenId) != msg.sender) revert TokenNotOwned();
-                if (ensRegistrar.nameExpires(tokenId) < endTime + settlementDuration) revert TokenExpired();
+                if (ensRegistrar.nameExpires(tokenId) < minExpiry) revert TokenExpired();
             }
         }
     }
@@ -572,13 +594,19 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     function _getActiveAuctionCount() internal view returns (uint256) {
         uint256 count = 0;
 
-        for (uint256 i = nextAuctionId - 1; i > 0; --i) {
+        for (uint256 i = nextAuctionId - 1; i > 0; ) {
             Auction storage auction = auctions[i];
 
             if (auction.status == Status.Active && block.timestamp < auction.endTime) {
-                count++;
+                unchecked {
+                    ++count;
+                }
             } else if (block.timestamp >= auction.endTime) {
                 break;
+            }
+
+            unchecked {
+                --i;
             }
         }
 

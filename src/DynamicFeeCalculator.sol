@@ -52,9 +52,13 @@ contract DynamicFeeCalculator is IFeeCalculator, Ownable {
             (penaltyFee * unclaimableCount);
 
         if (checkForDiscounts) {
-            for (uint256 i = 0; i < discounts.length; i++) {
-                if (_isEligibleForDiscount(discounts[i], seller)) {
-                    return fee * discounts[i].discount / 100;
+            uint256 discountsLength = discounts.length;
+            
+            for (uint256 i = 0; i < discountsLength; ++i) {
+                Discount memory discount = discounts[i];
+
+                if (_isEligibleForDiscount(discount, seller)) {
+                    return fee * discount.discount / 100;
                 }
             }
         }

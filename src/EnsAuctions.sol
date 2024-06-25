@@ -592,7 +592,6 @@ contract EnsAuctions is IEnsAuctions, Ownable {
      *
      */
     function _isClaimable(Auction storage auction) internal view returns (bool) {
-        bool isClaimable = true;
         bool isApprovedForAllWrapped = false;
         bool isApprovedForAllUnwrapped = false;
         bool checkApprovedForAllWrapped = false;
@@ -608,15 +607,13 @@ contract EnsAuctions is IEnsAuctions, Ownable {
                 }
 
                 if (!isApprovedForAllWrapped && ensNameWrapper.getApproved(token.tokenId) != address(this)) {
-                    isClaimable = false;
-                    break;
+                    return false;
                 }
 
                 (address _owner, uint32 fuses, ) = ensNameWrapper.getData(token.tokenId);
 
                 if (_owner != auction.seller || fuses & CANNOT_TRANSFER != 0) {
-                    isClaimable = false;
-                    break;
+                    return false;
                 }
             } else {
                 if (!checkApprovedForAllUnwrapped) {
@@ -625,18 +622,16 @@ contract EnsAuctions is IEnsAuctions, Ownable {
                 }
 
                 if (!isApprovedForAllUnwrapped && ensRegistrar.getApproved(token.tokenId) != address(this)) {
-                    isClaimable = false;
-                    break;
+                    return false;
                 }
 
                 if (ensRegistrar.ownerOf(token.tokenId) != auction.seller) {
-                    isClaimable = false;
-                    break;
+                    return false;
                 }
             }
         }
 
-        return isClaimable;
+        return true;
     }
 
     /**

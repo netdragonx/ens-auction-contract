@@ -7,3 +7,6 @@
 [submodule "lib/openzeppelin-contracts"]
 	path = lib/openzeppelin-contracts
 	url = https://github.com/openzeppelin/openzeppelin-contracts
+[submodule "lib/ERC1155P"]
+	path = lib/ERC1155P
+	url = https://github.com/0xth0mas/ERC1155P

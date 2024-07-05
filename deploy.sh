@@ -1,7 +1,5 @@
 #!/bin/bash
 
-
-
 anvil() {
     if [ -z "$ADDRESS_DEPLOYER" ]; then
         echo "Missing ADDRESS_DEPLOYER"
@@ -22,6 +20,7 @@ anvil() {
 testnet() {
     local rpcUrl=$1
     local chain=$2
+    local script=$3
 
     if [ -z "$rpcUrl" ]; then
         echo "Missing rpcUrl"
@@ -43,7 +42,7 @@ testnet() {
         exit 1
     fi
 
-    forge script script/DeployTestnet.s.sol:DeployTestnetScript \
+    forge script "$script" \
         -vvvv \
         --rpc-url "$rpcUrl" \
         --optimize \
@@ -59,6 +58,7 @@ testnet() {
 
 mainnet() {
     local rpcUrl=$1
+    local script=$2
 
     if [ -z "$rpcUrl" ]; then
         echo "Missing rpcUrl"
@@ -75,7 +75,7 @@ mainnet() {
         exit 1
     fi
 
-    forge script script/Deploy.s.sol:DeployScript \
+    forge script "$script" \
         -vvvv \
         --rpc-url "$rpcUrl" \
         --optimize \
@@ -93,16 +93,47 @@ case $1 in
         . .env.local
         anvil
         ;;
-    sepolia)
+    auctions-sepolia)
         . .env.testnet.local
-        testnet https://eth-sepolia.g.alchemy.com/v2/$ALCHEMY_API_KEY sepolia
+        testnet \
+            https://eth-sepolia.g.alchemy.com/v2/$ALCHEMY_API_KEY \
+            sepolia \
+            script/DeployTestnet.s.sol:DeployTestnetScript
         ;;
-    mainnet)
+    auctions-mainnet)
         . .env.mainnet.local
-        mainnet https://eth-mainnet.g.alchemy.com/v2/$ALCHEMY_API_KEY
+        mainnet \
+            https://eth-mainnet.g.alchemy.com/v2/$ALCHEMY_API_KEY \
+            script/Deploy.s.sol:DeployScript
+        ;;
+    drops-sepolia)
+        . .env.testnet.local
+        testnet \
+            https://eth-sepolia.g.alchemy.com/v2/$ALCHEMY_API_KEY \
+            sepolia \
+            script/EnsAuctionDrops/Deploy.s.sol:DeployEnsAuctionDropsScript
+        ;;
+    drops-mainnet)
+        . .env.mainnet.local
+        mainnet \
+            https://eth-mainnet.g.alchemy.com/v2/$ALCHEMY_API_KEY \
+            script/EnsAuctionDrops/Deploy.s.sol:DeployEnsAuctionDropsScript
+        ;;
+    airdrop-sepolia)
+        . .env.testnet.local
+        testnet \
+            https://eth-sepolia.g.alchemy.com/v2/$ALCHEMY_API_KEY \
+            sepolia \
+            script/EnsAuctionDrops/Airdrop.s.sol:AirdropScript
+        ;;
+    airdrop-mainnet)
+        . .env.mainnet.local
+        mainnet \
+            https://eth-mainnet.g.alchemy.com/v2/$ALCHEMY_API_KEY \
+            script/EnsAuctionDrops/Airdrop.s.sol:AirdropScript
         ;;
     *)
-        echo "Usage: $0 {anvil|sepolia|mainnet}"
+        echo "Usage: $0 {anvil|sepolia|mainnet|dropsSepolia|dropsMainnet|airdropSepolia|airdropMainnet}"
         exit 1
 esac
 

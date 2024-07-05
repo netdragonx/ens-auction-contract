@@ -6,9 +6,19 @@ import "solady/src/auth/Ownable.sol";
 
 contract EnsAuctionDrops is ERC1155P, Ownable {
     mapping(uint256 => string) private _tokenURIs;
+    string private _contractURI;
+    
+    event ContractURIUpdated();
+    
+    error Soulbound();
+    error InvalidArrayLengths();
 
     constructor() ERC1155P("EnsAuctionDrops", "EADROP") {
         _initializeOwner(msg.sender);
+    }
+
+    function contractURI() public view returns (string memory) {
+        return _contractURI;
     }
 
     function uri(uint256 id) public view virtual override returns (string memory) {
@@ -42,6 +52,11 @@ contract EnsAuctionDrops is ERC1155P, Ownable {
         emit URI(uri(tokenId), tokenId);
     }
 
+    function setContractURI(string calldata newURI) external onlyOwner {
+        _contractURI = newURI;
+        emit ContractURIUpdated();
+    }
+
     function _beforeTokenTransfer(
         address operator,
         address from,
@@ -71,7 +86,4 @@ contract EnsAuctionDrops is ERC1155P, Ownable {
             revert Soulbound();
         }
     }
-
-    error Soulbound();
-    error InvalidArrayLengths();
 }

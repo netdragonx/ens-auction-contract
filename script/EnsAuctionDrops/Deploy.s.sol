@@ -11,7 +11,8 @@ contract DeployEnsAuctionDropsScript is Script {
         vm.startBroadcast();
 
         ensAuctionDrops = new EnsAuctionDrops();
-
+        ensAuctionDrops.setContractURI(vm.envString("AIRDROP_CONTRACT_META"));
+        
         console2.log("EnsAuctionDrops contract: ", address(ensAuctionDrops));
 
         vm.stopBroadcast();

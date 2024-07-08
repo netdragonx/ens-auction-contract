@@ -29,7 +29,7 @@ pragma solidity ^0.8.25;
 //  ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒░        ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
 //  ░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ ░▒▓█▓▒░   ░▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░▒▓█▓▒  ▒▓█▓▒░ 
 //  ░▒▓█▓▒  ▒▓█▓▒  ▒▓██████▓▒░ ░▒▓██████▓▒░  ░▒▓█▓▒░   ░▒▓█▓▒  ▒▓██████▓▒  ▒▓█▓▒  ▒▓█▓▒░ 
-//  v1.2                                                             https://ens.auction
+//  v1.3                                                             https://ens.auction
 
 import "solady/src/auth/Ownable.sol";
 import "./IEnsAuctions.sol";
@@ -81,7 +81,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     uint256 public minBuyNowPrice = 0.05 ether;
     uint256 public minBidIncrement = 0.01 ether;
     uint256 public settlementDuration = 7 days;
-    uint256 public antiSnipeDuration = 15 minutes;
+    uint256 public antiSnipeDuration = 30 minutes;
     uint256 public maxTokens = 20;
     uint256 public eventStartDay = 5;
     uint256 public eventStartTime = 16 hours;
@@ -91,7 +91,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     mapping(address => Seller) public sellers;
     mapping(address => uint256) public balances;
     mapping(uint256 => Auction) public auctions;
-    mapping(uint256 => bool) public tokenOnAuction;
+    mapping(uint256 => uint256) public tokenOnAuction;
 
     constructor(
         address registrar_,
@@ -137,7 +137,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         if (calculateFee(msg.sender, useDiscount) != msg.value) revert InvalidFee();
         if (tokenCount > maxTokens) revert MaxTokensPerTxReached();
         if (startingPrice < minStartingPrice) revert StartPriceTooLow();
-        if (buyNowPrice < minBuyNowPrice || buyNowPrice <= startingPrice) revert BuyNowTooLow();
+        if (buyNowPrice < minBuyNowPrice) revert BuyNowTooLow();
         if (tokenCount == 0 || tokenCount != wrapped.length) revert InvalidLengthOfTokenIds();
 
         uint64 _eventStartTime = getNextEventStartTime();
@@ -523,11 +523,30 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         for (uint256 i; i < length; ++i) {
             uint256 tokenId = tokenIds[i];
+            uint256 existingAuctionId = tokenOnAuction[tokenId];
+        
+            // Check if the token is already in an auction
+            if (existingAuctionId != 0) {
+                Auction storage existingAuction = auctions[existingAuctionId];
 
-            if (tokenOnAuction[tokenId]) revert TokenAlreadyInAuction();
+                if (block.timestamp < existingAuction.endTime || 
+                    (
+                        block.timestamp >= existingAuction.endTime &&
+                        existingAuction.highestBidder != address(0)
+                    )
+                ) {
+                    revert TokenAlreadyInAuction();
+                }
+            }
+            
+            // Prevent duplicate tokens in the same auction
+            if (existingAuctionId == nextAuctionId) {
+                revert TokenAlreadyInAuction();
+            }
 
-            tokenOnAuction[tokenId] = true;
+            tokenOnAuction[tokenId] = nextAuctionId;
 
+            // Check ownership and expiry
             if (wrapped[i]) {
                 (address _owner, uint32 fuses, uint64 expiry) = ensNameWrapper.getData(tokenId);
                 if (_owner != msg.sender) revert TokenNotOwned();
@@ -541,7 +560,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
     }
 
     /**
-     * processPayment - Process payment for a bid. If a bidder has a balance, use that first.
+     * _processPayment - Process payment for a bid. If a bidder has a balance, use that first.
      *
      * @param paymentDue - The total amount due
      *
@@ -672,7 +691,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         uint256 tokenCount = auction.tokenCount;
 
         for (uint256 i; i < tokenCount; ++i) {
-            tokenOnAuction[auction.tokens[i].tokenId] = false;
+            tokenOnAuction[auction.tokens[i].tokenId] = 0;
         }
     }
 }

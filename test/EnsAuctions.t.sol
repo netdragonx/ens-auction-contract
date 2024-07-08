@@ -27,10 +27,10 @@ contract EnsAuctionsTest is Test {
     uint256[] public tokenIds = [0, 1, 2];
     uint256[] public tokenIds345 = [3, 4, 5];
     uint256[] public tokenIdsB = [10, 11, 12];
-
     uint256[] public tokenIds1 = [0];
     uint256[] public tokenIds2 = [1];
     uint256[] public tokenIds3 = [2];
+    uint256[] public tokenIdsDupes = [0, 1, 1];
 
     bool[] public wrapped = [true, true, true];
     bool[] public wrapped1 = [true];
@@ -175,7 +175,7 @@ contract EnsAuctionsTest is Test {
         assertEq(auctions.nextAuctionId(), nextAuctionId + 2, "nextAuctionId should be incremented");
     }
 
-    function test_startAuction_WithWrappedNames() public {
+    function test_startAuction_Success_WithWrappedNames() public {
         vm.startPrank(user1);
         uint256 fee = auctions.calculateFee(user1, false);
         auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, wrapped, false);
@@ -194,6 +194,15 @@ contract EnsAuctionsTest is Test {
 
         assertEq(_seller, user1, "Seller should be user1");
         assertEq(_tokenCount, tokenIds.length, "Token count should match the number of tokens auctioned");
+    }
+    
+    function test_startAuction_Success_ReuseNameThatHadNoBids() public {
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+
+        vm.warp(auctions.getNextEventEndTime() + 1);
+
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
     }
 
     function test_startAuction_RevertIf_InvalidFee() public {
@@ -244,6 +253,35 @@ contract EnsAuctionsTest is Test {
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
 
         fee = auctions.calculateFee(user1, false);
+        vm.expectRevert(bytes4(keccak256("TokenAlreadyInAuction()")));
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+    }
+
+    function test_startAuction_RevertIf_TokenAlreadyInAuction_DuplicateToken() public {
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
+
+        vm.expectRevert(bytes4(keccak256("TokenAlreadyInAuction()")));
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIdsDupes, unwrapped, false);
+    }
+
+    function test_startAuction_RevertIf_TokenAlreadyInAuction_ExpiredButHasBidder() public {
+        uint256 fee = auctions.calculateFee(user1, false);
+
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.stopPrank();
+        
+        vm.warp(auctions.getNextEventStartTime() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: startingPrice}(1, startingPrice);
+        vm.stopPrank();
+
+        vm.warp(auctions.getNextEventEndTime() + 1);
+
+        fee = auctions.calculateFee(user1, false);
+        vm.startPrank(user1);
         vm.expectRevert(bytes4(keccak256("TokenAlreadyInAuction()")));
         auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
     }
@@ -1488,7 +1526,7 @@ contract EnsAuctionsTest is Test {
 
         /// This breaks internal accounting logic given that _resetTokens() is prevented from being called again for the relevant tokenIds
         /// This permanently prevents the tokenIds from being auctioned in the future
-        assertEq(auctions.tokenOnAuction(tokenIds[0]), true);
+        assert(auctions.tokenOnAuction(tokenIds[0]) > 0);
         vm.expectRevert(bytes4(keccak256("TokenAlreadyInAuction()")));
         auctions.startAuction{value: fee}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
         vm.stopPrank();

@@ -157,7 +157,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             auction.tokens[i] = Token(tokenIds[i], wrapped[i]);
         }
 
-        _processPayment(fee);
+        _processFee(fee);
 
         emit Started(
             nextAuctionId,
@@ -173,9 +173,6 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             ++nextAuctionId;
             ++sellers[msg.sender].totalAuctions;
         }
-
-        (bool success, ) = payable(feeRecipient).call{value: msg.value}("");
-        if (!success) revert TransferFailed();
     }
 
     /**
@@ -337,7 +334,7 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
     /**
      *
-     * withdrawBalance - Withdraws your complete balance from the contract
+     * withdrawBalance - Withdraws your own balance from the contract
      *
      */
     function withdrawBalance() external {
@@ -349,6 +346,25 @@ contract EnsAuctions is IEnsAuctions, Ownable {
 
         (bool success, ) = payable(msg.sender).call{value: balance}("");
         if (!success) revert TransferFailed();
+    }
+
+    /**
+     *
+     * withdrawBalances - Withdraw and send balance to users if need arises
+     *
+     * @param addresses - The addresses to withdraw
+     *
+     */
+    function withdrawBalances(address[] calldata addresses) external onlyOwner {
+        for (uint256 i; i < addresses.length; ++i) {
+            uint256 balance = balances[addresses[i]];
+            balances[addresses[i]] = 0;
+
+            emit Withdrawn(addresses[i], balance);
+
+            (bool success, ) = payable(addresses[i]).call{value: balance}("");
+            if (!success) revert TransferFailed();
+        }
     }
 
     /**
@@ -587,6 +603,37 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         if (paymentFromBalance > 0) {
             balances[msg.sender] -= paymentFromBalance;
         }
+    }
+
+    /**
+     * _processFee - Process fee for new auction. If seller has a balance, use that first.
+     *
+     * @param paymentDue - The total amount due
+     *
+     */
+    function _processFee(uint256 paymentDue) internal {
+        uint256 balance = balances[msg.sender];
+        uint256 paymentFromBalance;
+        uint256 paymentFromMsgValue;
+
+        if (balance >= paymentDue) {
+            paymentFromBalance = paymentDue;
+            paymentFromMsgValue = 0;
+        } else {
+            paymentFromBalance = balance;
+            paymentFromMsgValue = paymentDue - balance;
+        }
+
+        if (msg.value != paymentFromMsgValue) {
+            revert InvalidValue();
+        }
+
+        if (paymentFromBalance > 0) {
+            balances[msg.sender] -= paymentFromBalance;
+        }
+
+        (bool success, ) = payable(feeRecipient).call{value: msg.value + paymentFromBalance}("");
+        if (!success) revert TransferFailed();
     }
 
     /**

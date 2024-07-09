@@ -247,6 +247,7 @@ contract EnsAuctionsTest is Test {
 
         // user2 balance should reflect having paid the fee with existing balance
         assertEq(auctions.balances(user2), 1 ether - fee2, "User2 should have 1 ether - fee2");
+        assertEq(feeRecipient.balance, fee2, "feeRecipient should have received the fee");
     }
 
     function test_startAuction_RevertIf_InvalidFee() public {
@@ -1347,6 +1348,106 @@ contract EnsAuctionsTest is Test {
         vm.startPrank(user2);
         assertEq(user2.balance, 1 ether - user2Fee);
         auctions.withdrawBalance();
+        assertEq(user2.balance, 1 ether - user2Fee + user3BidB);
+    }
+
+    //
+    // withdrawBalances
+    //
+    function test_withdrawBalances_Success() public {
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
+        
+        vm.warp(auctions.getNextEventStartTime() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: 0.01 ether}(1, 0.01 ether);
+        
+        (,,,, address highestBidder1, uint256 highestBid1,,,) = auctions.auctions(1);
+        assertEq(highestBid1, 0.01 ether);
+        assertEq(highestBidder1, user2);
+
+        vm.startPrank(user3);
+        auctions.bid{value: 0.02 ether}(1, 0.02 ether);
+
+        vm.stopPrank();
+
+        address[] memory users = new address[](1);
+        users[0] = user2;
+        auctions.withdrawBalances(users);
+        assertEq(user2.balance, 1 ether);
+    }
+
+    function test_withdrawBalances_Success_Combined_BidderSeller() public {
+        feeCalculator.setBaseFee(0.05 ether);
+        feeCalculator.setLinearFee(0.01 ether);
+        
+        uint256 user1Fee = auctions.calculateFee(user1, false);
+        uint256 user1Bid = 0.05 ether;
+
+        vm.prank(user1);
+        auctions.startAuction{value: user1Fee}(0.01 ether, buyNowPrice, tokenIds, unwrapped, false);
+        
+        uint256 user2Fee = auctions.calculateFee(user2, false);
+        uint256 user2Bid = 0.01 ether;
+
+        vm.prank(user2);
+        auctions.startAuction{value: user2Fee}(0.02 ether, buyNowPrice, tokenIdsB, unwrapped, false);
+        
+        vm.warp(auctions.getNextEventStartTime() + 1);
+        
+        vm.prank(user2);
+        auctions.bid{value: user2Bid}(1, user2Bid);
+
+        vm.prank(user1);
+        auctions.bid{value: user1Bid}(2, user1Bid);
+        
+        uint256 user3BidA = 0.02 ether;
+        uint256 user3BidB = 0.06 ether;
+
+        vm.startPrank(user3);
+        auctions.bid{value: user3BidA}(1, user3BidA);
+        auctions.bid{value: user3BidB}(2, user3BidB);
+
+        (,,,, address highestBidder1, uint256 highestBid1,,,) = auctions.auctions(1);
+        assertEq(highestBid1, user3BidA);
+        assertEq(highestBidder1, user3);
+
+        (,,,, address highestBidder2, uint256 highestBid2,,,) = auctions.auctions(2);
+        assertEq(highestBid2, user3BidB);
+        assertEq(highestBidder2, user3);
+
+        vm.warp(auctions.getNextEventEndTime() + 1);
+
+        vm.stopPrank();
+
+        assertEq(user1.balance, 1 ether - user1Fee - user1Bid);
+        address[] memory users1 = new address[](1);
+        users1[0] = user1;
+        auctions.withdrawBalances(users1);
+        assertEq(user1.balance, 1 ether - user1Fee);
+        
+        assertEq(user2.balance, 1 ether - user2Fee - user2Bid);
+        address[] memory users2 = new address[](1);
+        users2[0] = user2;
+        auctions.withdrawBalances(users2);
+        assertEq(user2.balance, 1 ether - user2Fee);
+
+        vm.startPrank(user3);
+        auctions.claim(1);
+        auctions.claim(2);
+        vm.stopPrank();
+
+        assertEq(user1.balance, 1 ether - user1Fee);
+        address[] memory users3 = new address[](1);
+        users3[0] = user1;
+        auctions.withdrawBalances(users3);
+        assertEq(user1.balance, 1 ether - user1Fee + user3BidA);
+        
+        assertEq(user2.balance, 1 ether - user2Fee);
+        address[] memory users4 = new address[](1);
+        users4[0] = user2;
+        auctions.withdrawBalances(users4);
         assertEq(user2.balance, 1 ether - user2Fee + user3BidB);
     }
 

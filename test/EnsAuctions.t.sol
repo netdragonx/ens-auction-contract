@@ -27,6 +27,7 @@ contract EnsAuctionsTest is Test {
     uint256[] public tokenIds = [0, 1, 2];
     uint256[] public tokenIds345 = [3, 4, 5];
     uint256[] public tokenIdsB = [10, 11, 12];
+    uint256[] public tokenIdsC = [13, 14, 15];
     uint256[] public tokenIds1 = [0];
     uint256[] public tokenIds2 = [1];
     uint256[] public tokenIds3 = [2];
@@ -205,6 +206,49 @@ contract EnsAuctionsTest is Test {
         auctions.startAuction{value: auctions.calculateFee(user1, false)}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
     }
 
+    function test_startAuction_Success_StartingPriceLessThanBuyNowPrice() public {
+        vm.startPrank(user1);
+        auctions.startAuction{value: auctions.calculateFee(user1, false)}(1 ether, 0.5 ether, tokenIds, unwrapped, false);
+    }
+
+    function test_startAuction_Success_UseBalanceForFeeIfAvailable() public {
+        vm.deal(user2, 10 ether);
+        vm.deal(user3, 10 ether);
+
+        vm.startPrank(user1);
+        uint256 fee = auctions.calculateFee(user1, false);
+        auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds, unwrapped, false);
+        vm.stopPrank();
+
+        vm.warp(auctions.getNextEventStartTime() + 1);
+
+        vm.startPrank(user2);
+        auctions.bid{value: 1 ether}(1, 1 ether);
+        vm.stopPrank();
+
+        vm.startPrank(user3);
+        auctions.bid{value: 1.1 ether}(1, 1.1 ether);
+        vm.stopPrank();
+
+        vm.warp(auctions.getNextEventEndTime() + 1);
+
+        // user2 now has 1 ether balance on the contract
+        assertEq(auctions.balances(user2), 1 ether, "User2 should have 1 ether");
+
+        // user2 now starts a new auction
+        vm.startPrank(user2);
+        auctions.startAuction{value: 0}(startingPrice, buyNowPrice, tokenIdsB, unwrapped, false);
+
+        uint256 fee2 = auctions.calculateFee(user2, false);
+        assert(fee2 > 0);
+
+        auctions.startAuction{value: 0}(startingPrice, buyNowPrice, tokenIdsC, unwrapped, false);
+        vm.stopPrank();
+
+        // user2 balance should reflect having paid the fee with existing balance
+        assertEq(auctions.balances(user2), 1 ether - fee2, "User2 should have 1 ether - fee2");
+    }
+
     function test_startAuction_RevertIf_InvalidFee() public {
         vm.startPrank(user1);
 
@@ -212,7 +256,7 @@ contract EnsAuctionsTest is Test {
         auctions.startAuction{value: fee}(startingPrice, buyNowPrice, tokenIds1, unwrapped1, false);
 
         fee = auctions.calculateFee(user1, false);
-        vm.expectRevert(bytes4(keccak256("InvalidFee()")));
+        vm.expectRevert(bytes4(keccak256("InvalidValue()")));
         auctions.startAuction{value: fee - 0.01 ether}(startingPrice, buyNowPrice, tokenIds2, unwrapped2, false);
     }
 

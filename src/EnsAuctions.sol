@@ -133,8 +133,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         bool useDiscount
     ) external payable {
         uint256 tokenCount = tokenIds.length;
+        uint256 fee = calculateFee(msg.sender, useDiscount);
 
-        if (calculateFee(msg.sender, useDiscount) != msg.value) revert InvalidFee();
         if (tokenCount > maxTokens) revert MaxTokensPerTxReached();
         if (startingPrice < minStartingPrice) revert StartPriceTooLow();
         if (buyNowPrice < minBuyNowPrice) revert BuyNowTooLow();
@@ -156,6 +156,8 @@ contract EnsAuctions is IEnsAuctions, Ownable {
         for (uint256 i; i < tokenCount; ++i) {
             auction.tokens[i] = Token(tokenIds[i], wrapped[i]);
         }
+
+        _processPayment(fee);
 
         emit Started(
             nextAuctionId,
@@ -578,9 +580,13 @@ contract EnsAuctions is IEnsAuctions, Ownable {
             paymentFromMsgValue = paymentDue - balance;
         }
 
-        if (msg.value != paymentFromMsgValue) revert InvalidValue();
+        if (msg.value != paymentFromMsgValue) {
+            revert InvalidValue();
+        }
 
-        balances[msg.sender] -= paymentFromBalance;
+        if (paymentFromBalance > 0) {
+            balances[msg.sender] -= paymentFromBalance;
+        }
     }
 
     /**

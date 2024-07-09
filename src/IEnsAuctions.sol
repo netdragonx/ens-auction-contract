@@ -77,7 +77,6 @@ interface IEnsAuctions {
     error BuyNowTooLow();
     error BuyNowUnavailable();
     error InvalidEventSchedule();
-    error InvalidFee();
     error InvalidLengthOfTokenIds();
     error InvalidStatus();
     error InvalidValue();

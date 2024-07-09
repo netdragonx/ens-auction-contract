@@ -8,7 +8,7 @@ import {MockNameWrapper} from "../test/lib/MockNameWrapper.sol";
 import {DynamicFeeCalculator} from "../src/DynamicFeeCalculator.sol";
 import {IFeeCalculator} from "../src/IFeeCalculator.sol";
 
-contract DeployAnvilScript is Script {
+contract DeployAllAnvilScript is Script {
     EnsAuctions ensAuctions;
     MockRegistrar mockRegistrar;
     MockNameWrapper mockNameWrapper;
